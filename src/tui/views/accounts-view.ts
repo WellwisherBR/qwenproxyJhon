@@ -145,7 +145,7 @@ export class AccountsView implements TuiView {
   public async handleKey(key: KeyEvent): Promise<boolean | void> {
     // 0. Confirm Dialog Active
     if (this.confirmDialog) {
-      if (key.name === "s" || key.name === "S" || key.name === "enter" || key.name === "return") {
+      if (key.name === "s" || key.name === "S") {
         const dialog = this.confirmDialog;
         this.confirmDialog = null;
         this.confirmDialogHovered = null;
@@ -158,17 +158,40 @@ export class AccountsView implements TuiView {
         this.setStatusMessage(theme.muted("Ação cancelada"));
         return true;
       }
+      if (key.name === "enter" || key.name === "return") {
+        if (this.confirmDialogHovered === "cancel") {
+          this.confirmDialog = null;
+          this.confirmDialogHovered = null;
+          this.setStatusMessage(theme.muted("Ação cancelada"));
+          return true;
+        }
+        const dialog = this.confirmDialog;
+        this.confirmDialog = null;
+        this.confirmDialogHovered = null;
+        await dialog.onConfirm();
+        return true;
+      }
+      if (key.name === "left" || key.name === "right" || key.name === "tab") {
+        this.confirmDialogHovered = this.confirmDialogHovered === "cancel" ? "confirm" : "cancel";
+        return true;
+      }
       if (key.name === "hover" && key.mouse) {
         const { row, col } = key.mouse;
-        const btnRow = this.lastConfirmModalStartRow + 4;
-        if (row === btnRow) {
-          const startCol = this.lastConfirmModalLeftPad + 2;
-          if (col >= startCol && col <= startCol + 25) {
-            this.confirmDialogHovered = "confirm";
+        const btnRow = (this.lastConfirmModalStartRow || 4) + 5;
+        if (row === btnRow || row === btnRow - 1) {
+          const relCol = col - (this.lastConfirmModalLeftPad || 0);
+          if (relCol >= 2 && relCol <= 34) {
+            if (this.confirmDialogHovered !== "confirm") {
+              this.confirmDialogHovered = "confirm";
+              return true;
+            }
             return true;
           }
-          if (col >= startCol + 26 && col <= startCol + 50) {
-            this.confirmDialogHovered = "cancel";
+          if (relCol >= 35 && relCol <= 60) {
+            if (this.confirmDialogHovered !== "cancel") {
+              this.confirmDialogHovered = "cancel";
+              return true;
+            }
             return true;
           }
         }
@@ -179,17 +202,17 @@ export class AccountsView implements TuiView {
       }
       if (key.name === "click" && key.mouse) {
         const { row, col } = key.mouse;
-        const btnRow = this.lastConfirmModalStartRow + 4;
-        if (row === btnRow) {
-          const startCol = this.lastConfirmModalLeftPad + 2;
-          if (col >= startCol && col <= startCol + 25) {
+        const btnRow = (this.lastConfirmModalStartRow || 4) + 5;
+        if (row === btnRow || row === btnRow - 1) {
+          const relCol = col - (this.lastConfirmModalLeftPad || 0);
+          if (relCol >= 2 && relCol <= 34) {
             const dialog = this.confirmDialog;
             this.confirmDialog = null;
             this.confirmDialogHovered = null;
             await dialog.onConfirm();
             return true;
           }
-          if (col >= startCol + 26 && col <= startCol + 50) {
+          if (relCol >= 35 && relCol <= 60) {
             this.confirmDialog = null;
             this.confirmDialogHovered = null;
             this.setStatusMessage(theme.muted("Ação cancelada"));
@@ -804,14 +827,15 @@ export class AccountsView implements TuiView {
     if (this.confirmDialog) {
       const modalW = Math.min(width - 4, 66);
       this.lastConfirmModalLeftPad = Math.max(0, Math.floor((width - modalW) / 2));
+      this.lastConfirmModalStartRow = 4;
       const confirmBtn =
         this.confirmDialogHovered === "confirm"
           ? theme.bgHover(theme.red(" [ S / Enter ] Sim, Confirmar "))
-          : theme.red("[ S / Enter ] Sim, Confirmar");
+          : ` ${theme.red("[ S / Enter ] Sim, Confirmar")} `;
       const cancelBtn =
         this.confirmDialogHovered === "cancel"
           ? theme.bgHover(theme.green(" [ N / Esc ] Cancelar "))
-          : theme.green("[ N / Esc ] Cancelar");
+          : ` ${theme.green("[ N / Esc ] Cancelar")} `;
 
       const modalContent = [
         "",

@@ -1134,6 +1134,85 @@ test("TUI AccountsView: pressing 'x' opens confirmation modal for account chat d
   assert.equal(view.isCapturingText(), false);
 });
 
+test("TUI AccountsView: confirmation modal mouse hover and click on Confirmar and Cancelar buttons", async () => {
+  const view = new AccountsView();
+  const snapshot: any = {
+    online: true,
+    accounts: [
+      { id: "test-acc-1", emailOrName: "user@test.com", priority: 1, onCooldown: false, remainingCooldownMs: 0, headersReady: true },
+    ],
+  };
+  view.render(100, 24, snapshot);
+
+  // 1. Open confirmation modal by pressing 'd'
+  await view.handleKey({ name: "d", ctrl: false, shift: false, meta: false });
+  assert.equal(view.isCapturingText(), true);
+
+  // Render to calculate modal positions
+  view.render(100, 24, snapshot);
+  const leftPad = (view as any).lastConfirmModalLeftPad;
+
+  // 2. Hover over "Sim, Confirmar" button (terminal row 9)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 9, col: leftPad + 5 },
+  });
+  assert.equal((view as any).confirmDialogHovered, "confirm", "must hover confirm button on row 9");
+
+  // 3. Hover over "Cancelar" button (terminal row 9)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 9, col: leftPad + 40 },
+  });
+  assert.equal((view as any).confirmDialogHovered, "cancel", "must hover cancel button on row 9");
+
+  // 4. Click on "Cancelar" button
+  await view.handleKey({
+    name: "click",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "click", row: 9, col: leftPad + 40, button: "left" },
+  });
+  assert.equal(view.isCapturingText(), false, "clicking cancel must close modal");
+  assert.equal((view as any).confirmDialog, null);
+});
+
+test("TUI AccountsView: Left/Right arrows or Tab toggle confirmation dialog selection and Enter confirms", async () => {
+  const view = new AccountsView();
+  let confirmed = false;
+  (view as any).confirmDialog = {
+    type: "remove_account",
+    title: "Test",
+    message: "Test message",
+    detail: "Test detail",
+    onConfirm: async () => { confirmed = true; },
+  };
+  view.render(100, 24);
+
+  // Default state is not hovered / or defaults to confirm
+  assert.equal((view as any).confirmDialogHovered, null);
+
+  // Tab / Right arrow moves to cancel
+  await view.handleKey({ name: "tab", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).confirmDialogHovered, "cancel");
+
+  // Left arrow moves back to confirm
+  await view.handleKey({ name: "left", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).confirmDialogHovered, "confirm");
+
+  // Enter confirms
+  await view.handleKey({ name: "enter", ctrl: false, shift: false, meta: false });
+  assert.equal(confirmed, true);
+  assert.equal((view as any).confirmDialog, null);
+});
+
 test("TUI StorageView: pressing 'l' opens confirmation modal for deleting all chats and 'n' cancels", async () => {
   const view = new StorageView();
   view.render(100, 24);
@@ -1150,6 +1229,49 @@ test("TUI StorageView: pressing 'l' opens confirmation modal for deleting all ch
   assert.equal(view.isCapturingText(), false);
   const logs = (view as any).actionLogs;
   assert.ok(logs[logs.length - 1].includes("cancelada"));
+});
+
+test("TUI StorageView: confirmation modal mouse hover and click on Confirmar and Cancelar buttons", async () => {
+  const view = new StorageView();
+  view.render(100, 24);
+
+  // 1. Open confirmation modal by pressing 'l'
+  await view.handleKey({ name: "l", ctrl: false, shift: false, meta: false });
+  assert.equal(view.isCapturingText(), true);
+
+  view.render(100, 24);
+  const leftPad = (view as any).lastConfirmModalLeftPad;
+
+  // 2. Hover over "Sim, Confirmar" button (terminal row 9)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 9, col: leftPad + 5 },
+  });
+  assert.equal((view as any).confirmDialogHovered, "confirm", "must hover confirm button on row 9 in StorageView");
+
+  // 3. Hover over "Cancelar" button (terminal row 9)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 9, col: leftPad + 40 },
+  });
+  assert.equal((view as any).confirmDialogHovered, "cancel", "must hover cancel button on row 9 in StorageView");
+
+  // 4. Click on "Cancelar" button
+  await view.handleKey({
+    name: "click",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "click", row: 9, col: leftPad + 40, button: "left" },
+  });
+  assert.equal(view.isCapturingText(), false, "clicking cancel must close modal in StorageView");
+  assert.equal((view as any).confirmDialog, null);
 });
 test("TUI Screen: deduplicates identical cell hovers and throttles mouse motion", async () => {
   const { Screen } = await import("../tui/screen.ts");
