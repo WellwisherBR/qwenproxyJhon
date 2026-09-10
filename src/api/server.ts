@@ -653,15 +653,11 @@ export async function startServer(options?: {
       const totalAccounts = accounts.length;
 
       // Warm accounts in priority order (recently successful accounts first),
-      // skipping accounts still on cooldown. Warm up to maxActiveContexts
-      // accounts (default 2: main + reserve) so an immediate failover has a
-      // live browser ready instead of incurring a cold start.
+      // skipping accounts still on cooldown. Warm the primary account first so
+      // the server binds the port and goes online immediately (~15-20s).
+      // Reserve account(s) and standby validations run seamlessly in background.
       const warmOrder = getAccountsByPriority(accounts).filter(
         (account) => !getAccountCooldownInfo(account.id),
-      );
-      const targetWarmCount = Math.min(
-        warmOrder.length,
-        Math.max(1, config.playwright.maxActiveContexts),
       );
       const readyAccountIds = new Set<string>();
 
@@ -676,11 +672,9 @@ export async function startServer(options?: {
         if (ok) {
           readyAccountIds.add(warmOrder[i].id);
           console.log(
-            `✅ [Server] Account ready (${readyAccountIds.size}/${totalAccounts}): ${maskEmail(warmOrder[i].email)}`,
+            `✅ [Server] Account ready (1/${totalAccounts}): ${maskEmail(warmOrder[i].email)}`,
           );
-          if (readyAccountIds.size >= targetWarmCount) {
-            break;
-          }
+          break;
         }
       }
 
@@ -717,16 +711,43 @@ export async function startServer(options?: {
           `🪶 [Server] ${remainingAccounts.length} standby account(s) will initialize on demand`,
         );
 
-        // Validate standby accounts in background: check login, add to priority,
-        // but keep browser closed until actually needed
+        // In background: warm 1 reserve account (if maxActiveContexts > 1) and
+        // validate the rest of the standby accounts
         void (async () => {
           const { validateAccountLogin } = await import("../services/playwright.ts");
           const { ensureAccountInPriority } = await import("../core/account-priority.ts");
 
+          let accountsToValidate = remainingAccounts;
+
+          // Warm reserve account in background for fast failover without delaying startup
+          if (config.playwright.maxActiveContexts > 1 && remainingAccounts.length > 0) {
+            const reserveAccount = remainingAccounts[0];
+            accountsToValidate = remainingAccounts.slice(1);
+            try {
+              const ok = await prepareAccountRuntime(
+                reserveAccount,
+                getAccountCredentials,
+                initPlaywrightForAccount,
+                disableNativeTools,
+                warmQwenChatPool,
+              );
+              if (ok) {
+                ensureAccountInPriority(reserveAccount.id);
+                console.log(
+                  `✅ [Server] Reserve account ready (2/${totalAccounts}): ${maskEmail(reserveAccount.email)}`,
+                );
+              }
+            } catch (err) {
+              console.warn(
+                `⚠️  [Server] Failed to warm reserve account ${maskEmail(reserveAccount.email)}: ${getErrorMessage(err)}`,
+              );
+            }
+          }
+
           let validated = 0;
           let failed = 0;
 
-          for (const account of remainingAccounts) {
+          for (const account of accountsToValidate) {
             try {
               const creds = getAccountCredentials(account.id) ?? account;
               // Validate login in background with real unmasked credentials
@@ -757,17 +778,14 @@ export async function startServer(options?: {
               markAccountRateLimited(
                 account.id,
                 24 * 3600 * 1000,
-                `AuthFailed: ${getErrorMessage(error)}`,
+                `StandbyValidationError: ${getErrorMessage(error)}`,
               );
             }
           }
-          if (failed > 0) {
-            console.warn(
-              `⚠️  [Server] Standby validation finished: ${validated} ok, ${failed} failed`,
-            );
-          } else if (validated > 0) {
+
+          if (validated > 0 || failed > 0) {
             console.log(
-              `✅ [Server] Standby validation complete: all ${validated} account(s) ready`,
+              `✅ [Server] Standby validation complete: ${validated} account(s) ready${failed > 0 ? `, ${failed} failed` : ""}`,
             );
           }
         })().catch((error) => {
