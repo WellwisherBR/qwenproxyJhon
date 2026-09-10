@@ -650,15 +650,20 @@ export async function startServer(options?: {
     const BATCH_SIZE = config.playwright.initBatchSize;
 
     if (accounts.length > 0) {
-      let readyAccountId: string | null = null;
       const totalAccounts = accounts.length;
 
       // Warm accounts in priority order (recently successful accounts first),
-      // skipping accounts still on cooldown, so the startup account matches
-      // the one request routing will pick first.
+      // skipping accounts still on cooldown. Warm up to maxActiveContexts
+      // accounts (default 2: main + reserve) so an immediate failover has a
+      // live browser ready instead of incurring a cold start.
       const warmOrder = getAccountsByPriority(accounts).filter(
         (account) => !getAccountCooldownInfo(account.id),
       );
+      const targetWarmCount = Math.min(
+        warmOrder.length,
+        Math.max(1, config.playwright.maxActiveContexts),
+      );
+      const readyAccountIds = new Set<string>();
 
       for (let i = 0; i < warmOrder.length; i++) {
         const ok = await prepareAccountRuntime(
@@ -669,24 +674,26 @@ export async function startServer(options?: {
           warmQwenChatPool,
         );
         if (ok) {
+          readyAccountIds.add(warmOrder[i].id);
           console.log(
-            `✅ [Server] Account ready (${i + 1}/${totalAccounts}): ${maskEmail(warmOrder[i].email)}`,
+            `✅ [Server] Account ready (${readyAccountIds.size}/${totalAccounts}): ${maskEmail(warmOrder[i].email)}`,
           );
-          readyAccountId = warmOrder[i].id;
-          break;
+          if (readyAccountIds.size >= targetWarmCount) {
+            break;
+          }
         }
       }
 
       const remainingAccounts = accounts.filter(
-        (account) => account.id !== readyAccountId,
+        (account) => !readyAccountIds.has(account.id),
       );
-      if (readyAccountId === null) {
+      if (readyAccountIds.size === 0) {
         console.warn(
           `⚠️  [Server] No account ready during startup; continuing in background`,
         );
       }
 
-      if (config.playwright.prepareAllOnStartup || readyAccountId === null) {
+      if (config.playwright.prepareAllOnStartup || readyAccountIds.size === 0) {
         if (config.playwright.prepareAllOnStartup && remainingAccounts.length > 0) {
           console.log(
             `🪶 [Server] Preparing ${remainingAccounts.length} standby account(s) in background`,

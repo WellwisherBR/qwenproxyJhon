@@ -3157,6 +3157,12 @@ export function registerPlaywrightAccountForTests(
   lastAccountActivity.set(accountId, lastActivityAt);
 }
 
+export function unregisterPlaywrightAccountForTests(accountId: string): void {
+  accountPages.delete(accountId);
+  accountContexts.delete(accountId);
+  lastAccountActivity.delete(accountId);
+}
+
 // ─── Token TTL Diagnostics ───────────────────────────────────────────────────
 
 export interface CookieDiagnostic {
