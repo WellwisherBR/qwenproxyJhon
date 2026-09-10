@@ -18,6 +18,7 @@ import {
 } from "../../core/reasoning-effort.ts";
 
 import { TOOL_CALL_OPEN, TOOL_CALL_CLOSE } from "../../tools/toolcall-tags.ts";
+import { robustParseJSON } from "../../utils/json.ts";
 
 export interface ParsedRequest {
   body: OpenAIRequest;
@@ -224,15 +225,19 @@ async function buildPromptFromMessages(
           if (typeof args === "string") {
             try {
               parsedArgs = JSON.parse(args);
-            } catch (parseErr) {
-              // Malformed JSON: preserve raw string for model visibility
-              logger.warn("[chat] Failed to parse tool_call arguments", {
-                toolCallId: tc.id,
-                toolName: tc.function?.name,
-                error: parseErr instanceof Error ? parseErr.message : "Unknown",
-                rawArgs: args.substring(0, 200),
-              });
-              parsedArgs = { _raw: args };
+            } catch {
+              try {
+                parsedArgs = robustParseJSON(args);
+              } catch (parseErr) {
+                // Malformed JSON: preserve raw string for model visibility
+                logger.warn("[chat] Failed to parse tool_call arguments", {
+                  toolCallId: tc.id,
+                  toolName: tc.function?.name,
+                  error: parseErr instanceof Error ? parseErr.message : "Unknown",
+                  rawArgs: args.substring(0, 200),
+                });
+                parsedArgs = { _raw: args };
+              }
             }
           } else if (args && typeof args === "object") {
             parsedArgs = args;

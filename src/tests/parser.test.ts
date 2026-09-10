@@ -740,3 +740,23 @@ test("StreamingToolParser: drops duplicate incremental tool calls before emittin
   const nameDeltas = deltas.filter((delta) => delta.function?.name);
   assert.strictEqual(nameDeltas.length, 1, "duplicate call deltas must not be emitted");
 });
+
+test("StreamingToolParser: recovers tool call with unclosed outer brace and qpx_call closing tag", () => {
+  const ASK_TOOLS = [
+    {
+      name: "AskUserQuestion",
+      description: "Ask user",
+      parameters: { type: "object", properties: { questions: { type: "array" } } },
+    } as any,
+  ];
+  const parser = new StreamingToolParser(ASK_TOOLS);
+  const input = '<qpx_call>\n{"name":"AskUserQuestion","arguments":{"questions":[{"question":"Which port?","options":[{"label":"A"},{"label":"B"}]}]}}\n</qpx_call>';
+  // Missing one closing brace: }]}] instead of }]}]}}
+  const brokenInput = input.replace(/\}\}\n<\/qpx_call>/, "}\n</qpx_call>");
+  const res1 = parser.feed(brokenInput);
+  const res2 = parser.flush();
+  const allCalls = [...res1.toolCalls, ...res2.toolCalls];
+  assert.strictEqual(allCalls.length, 1, "tool call should be successfully parsed");
+  assert.strictEqual(allCalls[0].name, "AskUserQuestion");
+  assert.strictEqual((allCalls[0].arguments as any).questions[0].question, "Which port?");
+});

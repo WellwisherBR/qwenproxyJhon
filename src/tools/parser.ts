@@ -9,6 +9,7 @@ import {
   getOpenNames,
   getCloseNames,
   matchToolCloseAt,
+  stripTrailingStrayCloses,
 } from "./toolcall-tags.ts";
 
 export interface ToolCallDelta {
@@ -190,6 +191,45 @@ function closeTagContentIsParseable(buffer: string, endIdx: number): boolean {
   return tryParseJsonToolPayload(content);
 }
 
+function balanceClosingBrackets(content: string): string {
+  let inString = false;
+  let escaped = false;
+  const stack: string[] = [];
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") {
+      const top = stack[stack.length - 1];
+      if ((top === "{" && ch === "}") || (top === "[" && ch === "]")) {
+        stack.pop();
+      }
+    }
+  }
+  if (inString) return content;
+  let out = content;
+  while (stack.length > 0) {
+    const open = stack.pop();
+    out += open === "{" ? "}" : "]";
+  }
+  return out;
+}
+
 /**
  * Plain-JSON.parse based candidate checks, in increasing tolerance order:
  * raw payload -> narrow typo repairs -> doubled trailing brace/bracket ->
@@ -214,9 +254,13 @@ function tryParseJsonToolPayload(content: string): boolean {
 
   const candidates = [repaired, stripped];
   if (repaired !== content) candidates.push(strippedRepaired);
-  candidates.push(`{\"${content}`, `{${content}`);
-  if (repaired !== content) candidates.push(`{\"${repaired}`, `{${repaired}`);
+  candidates.push(`{"${content}`, `{${content}`);
+  if (repaired !== content) candidates.push(`{"${repaired}`, `{${repaired}`);
 
+  const balanced = balanceClosingBrackets(content);
+  if (balanced !== content) candidates.push(balanced);
+  const balancedRepaired = balanceClosingBrackets(repaired);
+  if (balancedRepaired !== content) candidates.push(balancedRepaired);
   return candidates.some((candidate) => tryParse(candidate));
 }
 
@@ -998,6 +1042,10 @@ function isJsonPayloadTruncated(content: string): boolean {
   }
   if (content.includes('\\"')) {
     alt.push(content.replace(/\\"/g, '"'));
+  }
+  const balanced = balanceClosingBrackets(trimmed);
+  if (balanced !== trimmed) {
+    alt.push(balanced);
   }
   for (const candidate of alt) {
     if (!scanJsonStructureIncomplete(candidate)) return false;
@@ -1864,7 +1912,7 @@ export class StreamingToolParser {
       // argument values (e.g. `{"a": "1</tool_call>"}`). Genuine unclosed
       // streams (cut mid-payload) have no trailing tag, so this is a no-op
       // for them.
-      const trimmed = rawTrimmed.replace(/<\/tool_calls?>$/i, "");
+      const trimmed = stripTrailingStrayCloses(rawTrimmed).trim();
       if (trimmed.length > 0) {
         if (isToolcallDebugEnabled()) {
           logger.debug(
@@ -2570,10 +2618,13 @@ export class StreamingToolParser {
     // malformed tracking fires and the model re-emits cleanly.
     if (isJsonPayloadTruncated(block)) return null;
     const variants = [block];
+    const balanced = balanceClosingBrackets(block);
+    if (balanced !== block) {
+      variants.push(balanced);
+    }
     if (block.includes('\\"')) {
       variants.push(block.replace(/\\"/g, '"'));
     }
-
     for (const variant of variants) {
       try {
         const parsed = robustParseJSON(variant);

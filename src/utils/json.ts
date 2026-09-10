@@ -191,6 +191,13 @@ export function robustParseJSON(str: string): any {
     jsonPart = jsonPart.replace(/\\\\"/g, '\\"');
   }
 
+  // Heal stray backslashes escaping quotes on property keys or values
+  // e.g. "key\": \"val\" or "key\": "val" -> "key": "val"
+  jsonPart = jsonPart
+    .replace(/([{,]\s*)"([a-zA-Z0-9_-]+)\\"(\s*:)/g, '$1"$2"$3')
+    .replace(/:\s*\\"([^"\\]*)\\"(\s*[,}\]])/g, ': "$1"$2')
+    .replace(/:\s*\\"([^"\\]*)("(?:\s*[,}\]]))/g, ': "$1$2')
+    .replace(/:\s*"([^"\\]*)\\"(\s*[,}\]])/g, ': "$1"$2');
   let currentJson = jsonPart.replace(
     /([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g,
     '$1"$2"$3',

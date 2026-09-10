@@ -64,3 +64,11 @@ test("robustParseJSON: handles stream truncation mid-string with escaped quote",
     assert.strictEqual(result.name, "apply_diff");
     assert.ok(result.arguments.diff.includes('content with "quote'), "Should recover the string with escaped quote");
 });
+
+test("robustParseJSON: handles stray backslashes escaping property quotes", () => {
+    const rawArgs = '{"pattern": "skill_view: rebuilt session skill view","conversation_id\\":\\"d5dc8b6c", "path": "C:\\\\Users\\\\amarober\\\\file.log"}';
+    const result = robustParseJSON(rawArgs);
+    assert.ok(result !== null);
+    assert.strictEqual(result.conversation_id, "d5dc8b6c");
+    assert.strictEqual(result.pattern, "skill_view: rebuilt session skill view");
+});
