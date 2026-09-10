@@ -25,6 +25,7 @@ import {
   ContextLengthExceededError,
   ClientAbortedError,
 } from "../core/errors.ts";
+import { config } from "../core/config.ts";
 import { parseQwenErrorPayload } from "../routes/chat/errors.ts";
 
 test("classifyRetryAction: unknown upstream errors are retryable by default", () => {
@@ -105,6 +106,19 @@ test("classifyRetryAction: stuck Playwright page is account initialization failu
   assert.equal(action.switchAccount, true);
   assert.equal(action.forceNewChat, false);
   assert.equal(action.accountCooldownReason, "AuthInitFailed");
+  assert.equal(action.reason, "account_initialization_failed");
+});
+
+test("classifyRetryAction: acquire deadline exceeded quarantines account and rotates", () => {
+  const err = Object.assign(
+    new Error("Acquire deadline (120000ms) exceeded creating stream on test@example.com"),
+    { code: "acquire_deadline" },
+  );
+  const action = classifyRetryAction(err);
+  assert.equal(action.retryable, true);
+  assert.equal(action.switchAccount, true);
+  assert.equal(action.accountCooldownReason, "AuthInitFailed");
+  assert.equal(action.accountCooldownMs, config.concurrency.initFailureCooldownMs);
   assert.equal(action.reason, "account_initialization_failed");
 });
 

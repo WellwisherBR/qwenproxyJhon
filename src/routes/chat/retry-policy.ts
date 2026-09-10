@@ -216,7 +216,10 @@ export function shouldRetryChatInProgressOnSameAccount(
 
 export function isAccountInitializationError(err: unknown): boolean {
   const message = errMessage(err).toLowerCase();
+  const code = errCode(err).toLowerCase();
   return (
+    code === "acquire_deadline" ||
+    message.includes("acquire deadline") ||
     message.includes("header capture returned incomplete anti-fraud headers") ||
     message.includes("required qwen anti-fraud headers are unavailable") ||
     message.includes("playwright not initialized for account") ||

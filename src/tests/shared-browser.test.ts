@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   getStorageStatePath,
   loadStorageState,
+  saveStorageState,
   isPlaywrightAlreadyClosedError,
   cleanupOrphanProfiles,
 } from "../services/playwright.ts";
@@ -39,6 +40,17 @@ test("Playwright Storage State: loadStorageState validates JSON and cookies arra
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   }
+});
+
+test("Playwright Storage State: saveStorageState bounds hung storageState call with timeout", async () => {
+  const accountId = "hang-test-acc";
+  const fakeContext: any = {
+    storageState: () => new Promise(() => {}), // never resolves
+  };
+  const start = Date.now();
+  await saveStorageState(fakeContext, accountId);
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed >= 2000 && elapsed < 8000, `must time out within ~5s, took ${elapsed}ms`);
 });
 
 test("Playwright already-closed error detection", () => {

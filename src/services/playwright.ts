@@ -265,6 +265,7 @@ export function loadStorageState(accountId: string): string | undefined {
 export async function saveStorageState(
   context: BrowserContext,
   accountId: string,
+  timeoutMs = 5_000,
 ): Promise<void> {
   try {
     const stateFile = getStorageStatePath(accountId);
@@ -272,7 +273,11 @@ export async function saveStorageState(
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    await context.storageState({ path: stateFile });
+    await withTimeout(
+      context.storageState({ path: stateFile }),
+      timeoutMs,
+      `storageState timed out after ${timeoutMs}ms`,
+    );
   } catch (error) {
     console.warn(
       `[Playwright] Failed to save storage state for ${accountId}: ${getErrorMessage(error)}`,
@@ -280,9 +285,13 @@ export async function saveStorageState(
   }
 }
 
-async function hasValidAuthCookie(context: BrowserContext): Promise<boolean> {
+async function hasValidAuthCookie(context: BrowserContext, timeoutMs = 3_000): Promise<boolean> {
   try {
-    const cookies = await context.cookies();
+    const cookies = await withTimeout(
+      context.cookies(),
+      timeoutMs,
+      `cookies check timed out after ${timeoutMs}ms`,
+    );
     return cookies.some(
       (c) =>
         (c.name.toLowerCase().includes("token") || c.name.toLowerCase().includes("session")) &&
