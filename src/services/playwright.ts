@@ -492,7 +492,7 @@ function isAccountServingStream(accountId: string): boolean {
   return true;
 }
 
-function getStealthScript(profile: FingerprintProfile): string {
+export function getStealthScript(profile: FingerprintProfile): string {
   const profileJson = JSON.stringify(profile).replace(/</g, "\\u003c");
   return `
     (function() {
@@ -740,6 +740,14 @@ function getStealthScript(profile: FingerprintProfile): string {
         function makeMime(desc, suffixes, type) {
           return { description: desc, suffixes: suffixes, type: type };
         }
+        function attachPlugin(mime, plugin) {
+          Object.defineProperty(mime, 'enabledPlugin', {
+            value: plugin,
+            enumerable: false,
+            configurable: true,
+            writable: true,
+          });
+        }
         const pdfMime = makeMime('Portable Document Format', 'pdf', 'application/pdf');
         const pdfxMime = makeMime('Portable Document Format', 'pdf', 'text/pdf');
         const pdfPlugin = {
@@ -750,8 +758,8 @@ function getStealthScript(profile: FingerprintProfile): string {
           0: pdfMime,
           1: pdfxMime,
         };
-        pdfMime.enabledPlugin = pdfPlugin;
-        pdfxMime.enabledPlugin = pdfPlugin;
+        attachPlugin(pdfMime, pdfPlugin);
+        attachPlugin(pdfxMime, pdfPlugin);
 
         const chromePdfMime = makeMime('Portable Document Format', 'pdf', 'application/pdf');
         const chromePdfMime2 = makeMime('Portable Document Format', 'pdf', 'text/pdf');
@@ -763,8 +771,8 @@ function getStealthScript(profile: FingerprintProfile): string {
           0: chromePdfMime,
           1: chromePdfMime2,
         };
-        chromePdfMime.enabledPlugin = chromePdfPlugin;
-        chromePdfMime2.enabledPlugin = chromePdfPlugin;
+        attachPlugin(chromePdfMime, chromePdfPlugin);
+        attachPlugin(chromePdfMime2, chromePdfPlugin);
 
         const nativePlugin = {
           name: 'Native Client',
@@ -774,9 +782,8 @@ function getStealthScript(profile: FingerprintProfile): string {
           0: makeMime('Native Client Executable', '', 'application/x-nacl'),
           1: makeMime('Portable Native Client Executable', '', 'application/x-pnacl'),
         };
-        nativePlugin[0].enabledPlugin = nativePlugin;
-        nativePlugin[1].enabledPlugin = nativePlugin;
-
+        attachPlugin(nativePlugin[0], nativePlugin);
+        attachPlugin(nativePlugin[1], nativePlugin);
         const pluginsList = [pdfPlugin, chromePdfPlugin, nativePlugin];
         const mimeList = [pdfMime, pdfxMime, chromePdfMime, chromePdfMime2, nativePlugin[0], nativePlugin[1]];
 
@@ -3078,7 +3085,13 @@ async function closePlaywrightForAccountLocked(
  * that must not be logged as keep-alive failures.
  */
 export function isPlaywrightAlreadyClosedError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  if (!error) return false;
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && "message" in error
+        ? String((error as any).message)
+        : String(error);
   return (
     message.includes("Target page, context or browser has been closed") ||
     message.includes("Browser has been closed") ||
@@ -3087,7 +3100,11 @@ export function isPlaywrightAlreadyClosedError(error: unknown): boolean {
     message.includes("Page crashed") ||
     message.includes("Assertion error") ||
     message.includes("Cannot find parent object") ||
-    message.includes("Connection closed")
+    message.includes("Connection closed") ||
+    message.includes("session closed") ||
+    message.includes("Session closed") ||
+    message.includes("Network.setCacheDisabled") ||
+    message.includes("Protocol error")
   );
 }
 

@@ -962,7 +962,7 @@ function repairCommonMalformedToolJson(content: string): string {
       // a bare-word value, so inserting the quote is safe (true/false/null and
       // numbers are excluded). The trailing `\"` escapes are preserved, so the
       // model's closing quote still terminates the string.
-      /([,{]\s*"[a-zA-Z_][a-zA-Z0-9_]*"\s*:\s*)(?=(?!true|false|null)[A-Za-z_])/g,
+      /([,{]\s*"[a-zA-Z_][a-zA-Z0-9_]*"\s*:\s*)(?=(?!true|false|null|\d|\[|\{|")[^\s])/g,
       '$1"',
     );
   return repairMissingArrayClose(repaired);

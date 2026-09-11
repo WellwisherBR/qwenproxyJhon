@@ -14,41 +14,35 @@ if (fs.existsSync(envPath)) {
   dotenv.config({ quiet: true })
 }
 // Prevent benign asynchronous driver/browser teardown exceptions from crashing the server
-process.on('uncaughtException', (error: unknown) => {
-  const msg = error instanceof Error ? error.message : String(error)
-  if (
-    msg.includes('Cannot find parent object') ||
-    msg.includes('Target page, context or browser has been closed') ||
-    msg.includes('Browser has been closed') ||
-    msg.includes('Target closed') ||
-    msg.includes('Target crashed') ||
-    msg.includes('Page crashed') ||
-    msg.includes('Assertion error') ||
-    msg.includes('Connection closed')
-  ) {
-    console.warn(`⚠️  [Playwright] Handled benign driver teardown exception: ${msg}`)
-    return
+process.on('uncaughtException', async (error: unknown) => {
+  const { isPlaywrightAlreadyClosedError } = await import('./services/playwright.ts');
+  if (isPlaywrightAlreadyClosedError(error)) {
+    const msg =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as any).message)
+          : String(error);
+    console.warn(`⚠️  [Playwright] Handled benign driver teardown exception: ${msg}`);
+    return;
   }
-  console.error('❌ [Process] Uncaught Exception:', error)
-})
+  console.error('❌ [Process] Uncaught Exception:', error);
+});
 
-process.on('unhandledRejection', (reason: unknown) => {
-  const msg = reason instanceof Error ? reason.message : String(reason)
-  if (
-    msg.includes('Cannot find parent object') ||
-    msg.includes('Target page, context or browser has been closed') ||
-    msg.includes('Browser has been closed') ||
-    msg.includes('Target closed') ||
-    msg.includes('Target crashed') ||
-    msg.includes('Page crashed') ||
-    msg.includes('Assertion error') ||
-    msg.includes('Connection closed')
-  ) {
-    console.warn(`⚠️  [Playwright] Handled benign driver teardown rejection: ${msg}`)
-    return
+process.on('unhandledRejection', async (reason: unknown) => {
+  const { isPlaywrightAlreadyClosedError } = await import('./services/playwright.ts');
+  if (isPlaywrightAlreadyClosedError(reason)) {
+    const msg =
+      reason instanceof Error
+        ? reason.message
+        : typeof reason === 'object' && reason !== null && 'message' in reason
+          ? String((reason as any).message)
+          : String(reason);
+    console.warn(`⚠️  [Playwright] Handled benign driver teardown rejection: ${msg}`);
+    return;
   }
-  console.error('❌ [Process] Unhandled Rejection:', reason)
-})
+  console.error('❌ [Process] Unhandled Rejection:', reason);
+});
 import { startServer } from './api/server.js'
 const isTui = process.argv.includes('--tui') || process.env.QWEN_TUI === 'true'
 

@@ -37,6 +37,10 @@ async function main() {
   const app = new TuiApp(initialTab);
 
   process.on("uncaughtException", async (err) => {
+    const { isPlaywrightAlreadyClosedError } = await import("../services/playwright.ts");
+    if (isPlaywrightAlreadyClosedError(err)) {
+      return;
+    }
     try {
       await app.stop();
     } catch {}
@@ -45,6 +49,10 @@ async function main() {
   });
 
   process.on("unhandledRejection", async (err) => {
+    const { isPlaywrightAlreadyClosedError } = await import("../services/playwright.ts");
+    if (isPlaywrightAlreadyClosedError(err)) {
+      return;
+    }
     try {
       await app.stop();
     } catch {}

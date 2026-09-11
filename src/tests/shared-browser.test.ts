@@ -57,6 +57,7 @@ test("Playwright already-closed error detection", () => {
   assert.equal(isPlaywrightAlreadyClosedError(new Error("Target page, context or browser has been closed")), true);
   assert.equal(isPlaywrightAlreadyClosedError(new Error("Browser has been closed")), true);
   assert.equal(isPlaywrightAlreadyClosedError(new Error("Some random network failure")), false);
+  assert.equal(isPlaywrightAlreadyClosedError({ type: "closed", message: "Protocol error (Network.setCacheDisabled): Internal server error, session closed." }), true);
 });
 test("cleanupOrphanProfiles removes directories not belonging to active accounts and stale dirs", () => {
   const tempBase = path.join(process.cwd(), ".tmp", "test-profiles-" + Date.now());
