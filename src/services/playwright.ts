@@ -308,8 +308,17 @@ async function hasValidAuthCookie(context: BrowserContext, timeoutMs = 3_000): P
  * Detect whether the page is authenticated.
  * Probes the authoritative /api/v1/auths/ endpoint from the page context (verified via HAR forensics)
  * and falls back to inspecting the presence of visible "Log in" / "Sign up" buttons.
+ *
+ * The probe is bounded: page.evaluate ignores Playwright's default timeouts, so a
+ * WAF-blocked page whose in-page fetch never settles would hang the caller with no
+ * error at all. A probe that cannot answer is treated as "not logged in" — the
+ * caller re-authenticates or reloads, which is strictly better than burning the
+ * whole header budget waiting on a frozen page.
  */
-export async function isPageLoggedIn(page: Page): Promise<boolean> {
+export async function isPageLoggedIn(
+  page: Page,
+  timeoutMs = SESSION_PROBE_NAVIGATION_TIMEOUT_MS,
+): Promise<boolean> {
   if (!page) return false;
   if (typeof page.isClosed === "function" && page.isClosed()) return false;
   try {
@@ -317,7 +326,7 @@ export async function isPageLoggedIn(page: Page): Promise<boolean> {
     if (url.includes("/auth") || url.includes("/login")) return false;
     if (typeof page.evaluate !== "function") return true;
 
-    return await page
+    const probe = page
       .evaluate(async () => {
         try {
           const res = await fetch("/api/v1/auths/", { method: "GET" });
@@ -330,6 +339,12 @@ export async function isPageLoggedIn(page: Page): Promise<boolean> {
         }
       })
       .catch(() => false);
+
+    return await withTimeout(
+      probe,
+      Math.max(1_000, timeoutMs),
+      `session probe timed out after ${timeoutMs}ms`,
+    );
   } catch {
     return false;
   }
@@ -456,6 +471,16 @@ const FIRST_TRIGGER_GRACE_MS = 3_000;
  * sends cover it while still failing a page that never produces them.
  */
 const HEADER_CAPTURE_TRIGGER_ATTEMPTS = 3;
+/**
+ * A healthy Qwen chat page renders its input within a couple of seconds. When
+ * it never does, the page is blocked (WAF interstitial, punish document, or a
+ * cold SPA that failed to hydrate) and page.focus would wait out the 60s page
+ * default, freezing the whole capture. Bound the wait well under the header
+ * budget so a stuck page reloads and retries instead of hanging.
+ */
+const CHAT_INPUT_APPEAR_TIMEOUT_MS = 15_000;
+/** Per-action bound for focus/fill/type once the input is already visible. */
+const CHAT_INPUT_ACTION_TIMEOUT_MS = 10_000;
 
 /**
  * A challenge blocking the chat page makes the send button inert, so header
@@ -1992,6 +2017,7 @@ export async function captureQwenHeaders(
       let headersCaptured = false;
       let retriggerRequested = false;
       let lastAttemptGraceTimedOut = false;
+      let lastAttemptInputMissing = false;
       let graceTimeoutCount = 0;
       let wakeTriggerLoop: (() => void) | undefined;
       const deadline = Date.now() + timeoutMs;
@@ -2199,7 +2225,10 @@ export async function captureQwenHeaders(
       // burn every trigger attempt on a textarea that does not exist. Re-login
       // immediately when credentials are available; otherwise fail fast with a
       // clear diagnosis instead of 3 pointless grace timeouts.
-      const loggedIn = await isPageLoggedIn(page);
+      const loggedIn = await isPageLoggedIn(
+        page,
+        Math.max(1_000, Math.min(remainingBudgetMs(), SESSION_PROBE_NAVIGATION_TIMEOUT_MS)),
+      );
       if (!loggedIn) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
@@ -2237,11 +2266,59 @@ export async function captureQwenHeaders(
       // Mirrors upstream 5b3fd3e (robust account header capture).
       const inputSelector =
         'textarea.message-input-textarea:visible, textarea:visible, [contenteditable="true"]:visible';
-      await page.focus(inputSelector);
+      // Bound the appearance wait: a page that never renders the chat input is
+      // blocked (WAF interstitial, punish document, or failed SPA hydration).
+      // Unbounded, page.focus would burn its 60s default timeout on every
+      // attempt, freezing the whole capture and cooling a healthy account with
+      // AuthInitFailed. A miss marks the attempt for a reload instead.
+      try {
+        await page
+          .locator(inputSelector)
+          .first()
+          .waitFor({
+            state: "visible",
+            timeout: Math.max(
+              1,
+              Math.min(CHAT_INPUT_APPEAR_TIMEOUT_MS, remainingBudgetMs()),
+            ),
+          });
+      } catch {
+        if (settled || page.isClosed()) return;
+        console.warn(
+          `⏱️  [Playwright] Chat input never appeared for ${accountId} (attempt ${attempt}); reloading`,
+        );
+        lastAttemptInputMissing = true;
+        retriggerRequested = true;
+        wakeTrigger();
+        return;
+      }
       if (settled || page.isClosed()) return;
-      await page.fill(inputSelector, "");
-      if (settled || page.isClosed()) return;
-      await page.type(inputSelector, "a", { delay: 100 });
+      const inputActionTimeoutMs = Math.max(
+        1,
+        Math.min(CHAT_INPUT_ACTION_TIMEOUT_MS, remainingBudgetMs()),
+      );
+      try {
+        await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
+        if (settled || page.isClosed()) return;
+        await page.fill(inputSelector, "", { timeout: inputActionTimeoutMs });
+        if (settled || page.isClosed()) return;
+        await page.type(inputSelector, "a", {
+          delay: 100,
+          timeout: inputActionTimeoutMs,
+        });
+      } catch {
+        // The input detached mid-interaction (challenge overlay, SPA
+        // re-render): same diagnosis as never appearing — only a fresh load
+        // recovers it.
+        if (settled || page.isClosed()) return;
+        console.warn(
+          `⏱️  [Playwright] Chat input interaction failed for ${accountId} (attempt ${attempt}); reloading`,
+        );
+        lastAttemptInputMissing = true;
+        retriggerRequested = true;
+        wakeTrigger();
+        return;
+      }
       if (settled || page.isClosed()) return;
       await sleep(2000);
       if (settled || page.isClosed()) return;
@@ -2309,8 +2386,16 @@ export async function captureQwenHeaders(
           // no request (indicating a stuck page/challenge that needs a fresh load).
           // Attempt 2 preserves the page from attempt 1 so the bx SDK that just
           // finished initializing in the background is not thrown away.
-          if (attempt === 1 || (lastAttemptGraceTimedOut && attempt >= 3)) {
+          // A missing chat input is the exception: the page never rendered the
+          // chat UI, so there is no warm SDK state to protect and only a fresh
+          // load can recover it.
+          if (
+            attempt === 1 ||
+            lastAttemptInputMissing ||
+            (lastAttemptGraceTimedOut && attempt >= 3)
+          ) {
             lastAttemptGraceTimedOut = false;
+            lastAttemptInputMissing = false;
             await openChatPage();
           }
           if (settled) return;

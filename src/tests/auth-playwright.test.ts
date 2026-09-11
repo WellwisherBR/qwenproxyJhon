@@ -188,6 +188,60 @@ test("playwright header capture gives up shortly after a send that fires no requ
     "capture must not wait out the full header budget after the send",
   );
 });
+test("playwright header capture reloads instead of hanging when the chat input never appears", async () => {
+  const { captureQwenHeaders } = await import("../services/playwright.ts");
+
+  // A WAF interstitial / punish document renders no chat input. The old code
+  // called page.focus directly, which waited out Playwright's 60s page default
+  // per attempt and cooled the account with AuthInitFailed.
+  const inputWaits: number[] = [];
+  const state = { gotos: 0, focuses: 0 };
+  const notFound = {
+    first: () => notFound,
+    isVisible: async () => false,
+    waitFor: async (opts: any) => {
+      inputWaits.push(opts?.timeout ?? -1);
+      throw new Error("Timeout exceeded waiting for locator");
+    },
+    boundingBox: async () => null,
+  };
+  const blockedPage = {
+    isClosed: () => false,
+    url: () => "https://chat.qwen.ai/",
+    route: async () => {},
+    unroute: async () => {},
+    goto: async () => {
+      state.gotos++;
+    },
+    locator: () => notFound,
+    frameLocator: () => ({ locator: () => notFound }),
+    focus: async () => {
+      state.focuses++;
+    },
+    fill: async () => {},
+    type: async () => {},
+    $: async () => null,
+    keyboard: { press: async () => {} },
+  };
+
+  await assert.rejects(
+    () => captureQwenHeaders("test-header-no-input", blockedPage as any, 30_000, 50),
+    /timed out/,
+  );
+
+  // Every attempt must bound the input wait well under the 60s page default.
+  assert.ok(inputWaits.length >= 3, `expected per-attempt waits, got ${inputWaits.length}`);
+  assert.ok(
+    inputWaits.every((t) => t > 0 && t <= 15_000),
+    `input wait must be bounded to <=15s, got ${JSON.stringify(inputWaits)}`,
+  );
+  assert.equal(state.focuses, 0, "focus must not be attempted on a page with no input");
+  assert.equal(
+    state.gotos,
+    3,
+    "a page with no chat input has no warm SDK state to protect: every attempt reloads",
+  );
+});
 
 test("playwright header capture fails fast when the page sits on the login screen without credentials", async () => {
   const { captureQwenHeaders } = await import("../services/playwright.ts");

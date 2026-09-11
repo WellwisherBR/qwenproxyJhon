@@ -94,6 +94,23 @@ test("isPageLoggedIn detects authenticated session via API/DOM and rejects unaut
   };
   assert.equal(await isPageLoggedIn(closedPage), false);
 });
+test("isPageLoggedIn bounds a hanging in-page probe instead of waiting forever", async () => {
+  // page.evaluate ignores Playwright's default timeouts: on a WAF-blocked page
+  // the in-page fetch can stay pending indefinitely. The probe must time out.
+  const hangingPage: any = {
+    isClosed: () => false,
+    url: () => "https://chat.qwen.ai/",
+    evaluate: () => new Promise<boolean>(() => {}),
+  };
+
+  const startedAt = Date.now();
+  assert.equal(await isPageLoggedIn(hangingPage, 1_000), false);
+  const elapsed = Date.now() - startedAt;
+  assert.ok(
+    elapsed >= 900 && elapsed < 5_000,
+    `probe must fail at its bound, took ${elapsed}ms`,
+  );
+});
 test("cleanupOrphanProfiles removes directories not belonging to active accounts and stale dirs", () => {
   const tempBase = path.join(process.cwd(), ".tmp", "test-profiles-" + Date.now());
   fs.mkdirSync(tempBase, { recursive: true });
