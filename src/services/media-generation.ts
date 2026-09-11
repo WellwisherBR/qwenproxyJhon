@@ -956,18 +956,9 @@ function parseJsonIfPossible(raw: string): unknown {
 }
 
 /**
- * Cooldown for a RateLimited error. Uses the hours the upstream reports in its
- * error message (e.g. "Please wait 4 hours...") when present; otherwise falls
- * back to the account manager's default cooldown.
+ * Cooldown for a RateLimited error. Per Invariant 4, daily quotas reset strictly
+ * at 00:00 UTC, so we delegate to markAccountRateLimited's default midnight calculation.
  */
-function rateLimitCooldownMs(err: UpstreamRateLimit): number | undefined {
-  const hourMatch = err.message?.match(/(\d+)\s*hours?/i);
-  if (hourMatch) {
-    const hours = Math.max(1, parseInt(hourMatch[1], 10));
-    return hours * 60 * 60 * 1000;
-  }
-  return undefined;
-}
 
 /**
  * Detects a Qwen daily usage limit response. The upstream answers HTTP 200
@@ -1290,11 +1281,7 @@ export async function generateImage(params: {
       }
 
       if (lastError instanceof UpstreamRateLimit) {
-        markAccountRateLimited(
-          account.id,
-          rateLimitCooldownMs(lastError),
-          "RateLimited",
-        );
+        markAccountRateLimited(account.id, undefined, "RateLimited");
       } else {
         markAccountRateLimited(account.id, ACCOUNT_COOLDOWN_MS, "MediaGenFailed");
       }
@@ -1533,11 +1520,7 @@ export async function generateVideo(params: {
       }
 
       if (lastError instanceof UpstreamRateLimit) {
-        markAccountRateLimited(
-          account.id,
-          rateLimitCooldownMs(lastError),
-          "RateLimited",
-        );
+        markAccountRateLimited(account.id, undefined, "RateLimited");
       } else {
         markAccountRateLimited(account.id, ACCOUNT_COOLDOWN_MS, "MediaGenFailed");
       }

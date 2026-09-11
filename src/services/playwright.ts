@@ -189,7 +189,7 @@ async function recoverStuckAccountMutex(
   );
   const context = accountContexts.get(accountId);
   if (context) {
-    await closePlaywrightContextBestEffort(accountId, context);
+    await closePlaywrightContextBestEffort(accountId, context, { skipStorageSave: true });
   }
   cleanupPlaywrightAccountState(accountId);
   if (accountMutexes.get(accountId) === mutex) {
@@ -2559,7 +2559,7 @@ export async function withAccountPage<T>(
         );
         const context = accountContexts.get(accountId);
         if (context) {
-          await closePlaywrightContextBestEffort(accountId, context);
+          await closePlaywrightContextBestEffort(accountId, context, { skipStorageSave: true });
         }
         cleanupPlaywrightAccountState(accountId);
       }
@@ -3047,7 +3047,7 @@ export function installContextDeathHandlers(
 ): void {
   const onDeath = (): void => {
     cleanupPlaywrightAccountState(accountId);
-    void closePlaywrightContextBestEffort(accountId, context).catch(() => {});
+    void closePlaywrightContextBestEffort(accountId, context, { skipStorageSave: true }).catch(() => {});
   };
   context.on("close", onDeath);
   page.on("crash", onDeath);
