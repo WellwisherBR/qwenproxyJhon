@@ -279,9 +279,11 @@ export async function saveStorageState(
       `storageState timed out after ${timeoutMs}ms`,
     );
   } catch (error) {
-    console.warn(
-      `[Playwright] Failed to save storage state for ${accountId}: ${getErrorMessage(error)}`,
-    );
+    if (!isPlaywrightAlreadyClosedError(error)) {
+      console.warn(
+        `[Playwright] Failed to save storage state for ${accountId}: ${getErrorMessage(error)}`,
+      );
+    }
   }
 }
 
@@ -297,6 +299,37 @@ async function hasValidAuthCookie(context: BrowserContext, timeoutMs = 3_000): P
         (c.name.toLowerCase().includes("token") || c.name.toLowerCase().includes("session")) &&
         (c.expires === undefined || c.expires === -1 || c.expires * 1000 > Date.now()),
     );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect whether the page is authenticated.
+ * Probes the authoritative /api/v1/auths/ endpoint from the page context (verified via HAR forensics)
+ * and falls back to inspecting the presence of visible "Log in" / "Sign up" buttons.
+ */
+export async function isPageLoggedIn(page: Page): Promise<boolean> {
+  if (!page) return false;
+  if (typeof page.isClosed === "function" && page.isClosed()) return false;
+  try {
+    const url = typeof page.url === "function" ? page.url() : "";
+    if (url.includes("/auth") || url.includes("/login")) return false;
+    if (typeof page.evaluate !== "function") return true;
+
+    return await page
+      .evaluate(async () => {
+        try {
+          const res = await fetch("/api/v1/auths/", { method: "GET" });
+          return res.status === 200;
+        } catch {
+          const btn = document.querySelector(
+            ".header-right-auth-button, button.header-right-auth-button, a[href*='/auth'], a[href*='/login']",
+          );
+          return !btn || (btn as HTMLElement).offsetWidth === 0;
+        }
+      })
+      .catch(() => false);
   } catch {
     return false;
   }
@@ -1365,17 +1398,24 @@ export async function initPlaywrightForAccount(
             waitUntil: "domcontentloaded",
             timeout: config.timeouts.navigation,
           });
-          const url = acctPage.url();
-          if (url.includes("auth") || url.includes("login")) {
+          const loggedIn = await isPageLoggedIn(acctPage);
+          if (!loggedIn) {
             if (account.email && account.password) {
               console.warn(
                 `⚠️  [Playwright] Session expired for ${maskEmail(account.email)}, re-authenticating...`,
               );
-              await loginToQwen(account.id, account.email, account.password);
+              const ok = await loginToQwen(account.id, account.email, account.password);
+              if (!ok) {
+                validationError = new Error(
+                  `Session expired for ${maskEmail(account.email)} and re-authentication failed`,
+                );
+                continue;
+              }
             } else {
-              console.warn(
-                `[Playwright] Session expired for account ${account.id} but no credentials available.`,
+              validationError = new Error(
+                `Session expired for account ${account.id} but no credentials available for re-login (run 'qpx login')`,
               );
+              break;
             }
           }
           validationError = null;
@@ -1396,8 +1436,6 @@ export async function initPlaywrightForAccount(
         );
         throw validationError;
       }
-
-      // Capture headers by navigating and intercepting
       await captureQwenHeaders(account.id);
 
       // Header capture may leave the UI on a generated chat page. Return the
@@ -1418,7 +1456,7 @@ export async function initPlaywrightForAccount(
 
       touchAccountActivity(account.id);
     } catch (error) {
-      await closePlaywrightContextBestEffort(account.id, acctContext);
+      await closePlaywrightContextBestEffort(account.id, acctContext, { skipStorageSave: true });
       cleanupPlaywrightAccountState(account.id);
       throw error;
     }
@@ -1528,23 +1566,20 @@ export async function validateAccountLogin(
         } finally {
           accountPages.delete(account.id);
         }
-      } else if (hasAuthCookie) {
-        // Validate session by navigating to chat page
+      } else {
+        // Validate session by navigating to chat page and checking login state
         try {
           await acctPage.goto(qwenUrl("/"), {
             waitUntil: "domcontentloaded",
             timeout: config.timeouts.navigation,
           });
-          const url = acctPage.url();
-          if (url.includes("auth") || url.includes("login")) {
-            loggedIn = false;
-            if (account.email && account.password) {
-              accountPages.set(account.id, acctPage);
-              try {
-                loggedIn = await loginToQwen(account.id, account.email, account.password);
-              } finally {
-                accountPages.delete(account.id);
-              }
+          loggedIn = await isPageLoggedIn(acctPage);
+          if (!loggedIn && account.email && account.password) {
+            accountPages.set(account.id, acctPage);
+            try {
+              loggedIn = await loginToQwen(account.id, account.email, account.password);
+            } finally {
+              accountPages.delete(account.id);
             }
           }
         } catch {
@@ -1946,59 +1981,64 @@ export async function captureQwenHeaders(
   touchAccountActivity(accountId);
   const cache = getHeaderCache(accountId);
 
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-    let routeRegistered = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    let routeHandler: (route: any, request: any) => Promise<void>;
-    let sawIncompleteHeaders = false;
-    let headersCaptured = false;
-    let retriggerRequested = false;
-    let lastAttemptGraceTimedOut = false;
-    let graceTimeoutCount = 0;
-    let wakeTriggerLoop: (() => void) | undefined;
-    const deadline = Date.now() + timeoutMs;
-    const remainingBudgetMs = () => deadline - Date.now();
+  let cleanupRoute = async () => {};
+  try {
+    return await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let routeRegistered = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let routeHandler: (route: any, request: any) => Promise<void>;
+      let sawIncompleteHeaders = false;
+      let headersCaptured = false;
+      let retriggerRequested = false;
+      let lastAttemptGraceTimedOut = false;
+      let graceTimeoutCount = 0;
+      let wakeTriggerLoop: (() => void) | undefined;
+      const deadline = Date.now() + timeoutMs;
+      const remainingBudgetMs = () => deadline - Date.now();
 
-    const cleanupRoute = () => {
-      if (!routeRegistered) return;
-      void page
-        .unroute("**/api/v2/chat/completions*", routeHandler)
-        .catch(() => {});
-    };
-
-    const wakeTrigger = () => {
-      const wake = wakeTriggerLoop;
-      wakeTriggerLoop = undefined;
-      wake?.();
-    };
-
-    const settle = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      cleanupRoute();
-      // A trigger loop parked between attempts has to be released, otherwise it
-      // stays pending forever behind an already-settled capture.
-      wakeTrigger();
-      // When a trigger grace period expired (page fired no completion request),
-      // log the OUTCOME so the operator can see whether the retry loop
-      // recovered or the account is being rotated into cooldown — the bare
-      // per-attempt warning leaves that dangling.
-      if (graceTimeoutCount > 0) {
-        if (headersCaptured) {
-          console.log(
-            `✅ [Playwright] Header capture recovered for ${accountId} after ${graceTimeoutCount} silent send(s)`,
-          );
-        } else {
-          console.warn(
-            `❌ [Playwright] Header capture failed for ${accountId} after ${graceTimeoutCount} silent send(s): ${error?.message ?? "no completion request"}`,
-          );
+      cleanupRoute = async () => {
+        if (!routeRegistered) return;
+        routeRegistered = false;
+        if (!page.isClosed()) {
+          try {
+            await page.unroute("**/api/v2/chat/completions*", routeHandler);
+          } catch {}
         }
-      }
-      if (error) reject(error);
-      else resolve();
-    };
+      };
+
+      const wakeTrigger = () => {
+        const wake = wakeTriggerLoop;
+        wakeTriggerLoop = undefined;
+        wake?.();
+      };
+
+      const settle = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        void cleanupRoute();
+        // A trigger loop parked between attempts has to be released, otherwise it
+        // stays pending forever behind an already-settled capture.
+        wakeTrigger();
+        // When a trigger grace period expired (page fired no completion request),
+        // log the OUTCOME so the operator can see whether the retry loop
+        // recovered or the account is being rotated into cooldown — the bare
+        // per-attempt warning leaves that dangling.
+        if (graceTimeoutCount > 0) {
+          if (headersCaptured) {
+            console.log(
+              `✅ [Playwright] Header capture recovered for ${accountId} after ${graceTimeoutCount} silent send(s)`,
+            );
+          } else {
+            console.warn(
+              `❌ [Playwright] Header capture failed for ${accountId} after ${graceTimeoutCount} silent send(s): ${error?.message ?? "no completion request"}`,
+            );
+          }
+        }
+        if (error) reject(error);
+        else resolve();
+      };
 
     const incompleteHeadersError = () =>
       new Error(
@@ -2159,8 +2199,8 @@ export async function captureQwenHeaders(
       // burn every trigger attempt on a textarea that does not exist. Re-login
       // immediately when credentials are available; otherwise fail fast with a
       // clear diagnosis instead of 3 pointless grace timeouts.
-      const currentUrl = page.url();
-      if (currentUrl.includes("/auth") || currentUrl.includes("/login")) {
+      const loggedIn = await isPageLoggedIn(page);
+      if (!loggedIn) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
         if (creds && creds.email && creds.password) {
@@ -2183,7 +2223,7 @@ export async function captureQwenHeaders(
         } else {
           settle(
             new Error(
-              `Header capture failed for ${accountId}: session expired and no credentials available for re-login`,
+              `Header capture failed for ${accountId}: session expired and no credentials available for re-login (run 'qpx login')`,
             ),
           );
           return;
@@ -2327,11 +2367,12 @@ export async function captureQwenHeaders(
             : new Error(`Header capture route registration failed for ${accountId}`),
         );
       });
-  });
+    });
+  } finally {
+    await cleanupRoute();
+  }
 }
-
 type CookieSnapshot = Awaited<ReturnType<BrowserContext["cookies"]>>;
-
 /**
  * Fetch the account context cookies once. The snapshot feeds every validity
  * check and the cookie string build, avoiding repeated CDP round-trips.
@@ -3029,15 +3070,23 @@ function cleanupPlaywrightAccountState(accountId: string): void {
 async function closePlaywrightContextBestEffort(
   accountId: string,
   context: BrowserContext,
+  options?: { skipStorageSave?: boolean },
 ): Promise<void> {
-  try {
-    if (await hasValidAuthCookie(context)) {
-      await saveStorageState(context, accountId);
-    }
-  } catch {}
+  if (!options?.skipStorageSave) {
+    try {
+      if (await hasValidAuthCookie(context)) {
+        await saveStorageState(context, accountId);
+      }
+    } catch {}
+  }
 
   try {
     const pages = context.pages();
+    for (const page of pages) {
+      if (!page.isClosed()) {
+        await (page as any).unrouteAll?.({ behavior: "ignoreErrors" }).catch(() => {});
+      }
+    }
     await Promise.all(
       pages.map((page) =>
         withTimeout(

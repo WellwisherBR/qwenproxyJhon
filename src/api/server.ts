@@ -721,27 +721,32 @@ export async function startServer(options?: {
 
           // Warm reserve account in background for fast failover without delaying startup
           if (config.playwright.maxActiveContexts > 1 && remainingAccounts.length > 0) {
-            const reserveAccount = remainingAccounts[0];
-            accountsToValidate = remainingAccounts.slice(1);
-            try {
-              const ok = await prepareAccountRuntime(
-                reserveAccount,
-                getAccountCredentials,
-                initPlaywrightForAccount,
-                disableNativeTools,
-                warmQwenChatPool,
-              );
-              if (ok) {
-                ensureAccountInPriority(reserveAccount.id);
-                console.log(
-                  `✅ [Server] Reserve account ready (2/${totalAccounts}): ${maskEmail(reserveAccount.email)}`,
+            let reserveCandidateIdx = 0;
+            for (; reserveCandidateIdx < remainingAccounts.length; reserveCandidateIdx++) {
+              const reserveAccount = remainingAccounts[reserveCandidateIdx];
+              try {
+                const ok = await prepareAccountRuntime(
+                  reserveAccount,
+                  getAccountCredentials,
+                  initPlaywrightForAccount,
+                  disableNativeTools,
+                  warmQwenChatPool,
+                );
+                if (ok) {
+                  ensureAccountInPriority(reserveAccount.id);
+                  console.log(
+                    `✅ [Server] Reserve account ready (2/${totalAccounts}): ${maskEmail(reserveAccount.email)}`,
+                  );
+                  reserveCandidateIdx++;
+                  break;
+                }
+              } catch (err) {
+                console.warn(
+                  `⚠️  [Server] Failed to warm reserve account ${maskEmail(reserveAccount.email)}: ${getErrorMessage(err)}`,
                 );
               }
-            } catch (err) {
-              console.warn(
-                `⚠️  [Server] Failed to warm reserve account ${maskEmail(reserveAccount.email)}: ${getErrorMessage(err)}`,
-              );
             }
+            accountsToValidate = remainingAccounts.slice(reserveCandidateIdx);
           }
 
           let validated = 0;

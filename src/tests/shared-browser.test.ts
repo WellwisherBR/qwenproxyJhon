@@ -7,6 +7,7 @@ import {
   loadStorageState,
   saveStorageState,
   isPlaywrightAlreadyClosedError,
+  isPageLoggedIn,
   cleanupOrphanProfiles,
 } from "../services/playwright.ts";
 test("Playwright Storage State: getStorageStatePath returns storage_state.json inside profile path", () => {
@@ -58,6 +59,40 @@ test("Playwright already-closed error detection", () => {
   assert.equal(isPlaywrightAlreadyClosedError(new Error("Browser has been closed")), true);
   assert.equal(isPlaywrightAlreadyClosedError(new Error("Some random network failure")), false);
   assert.equal(isPlaywrightAlreadyClosedError({ type: "closed", message: "Protocol error (Network.setCacheDisabled): Internal server error, session closed." }), true);
+});
+
+test("isPageLoggedIn detects authenticated session via API/DOM and rejects unauthenticated", async () => {
+  const authUrlPage: any = {
+    isClosed: () => false,
+    url: () => "https://chat.qwen.ai/auth?redirect=/",
+  };
+  assert.equal(await isPageLoggedIn(authUrlPage), false);
+
+  const loginUrlPage: any = {
+    isClosed: () => false,
+    url: () => "https://chat.qwen.ai/login",
+  };
+  assert.equal(await isPageLoggedIn(loginUrlPage), false);
+
+  const loggedOutApiPage: any = {
+    isClosed: () => false,
+    url: () => "https://chat.qwen.ai/",
+    evaluate: async (fn: any) => false,
+  };
+  assert.equal(await isPageLoggedIn(loggedOutApiPage), false);
+
+  const loggedInApiPage: any = {
+    isClosed: () => false,
+    url: () => "https://chat.qwen.ai/",
+    evaluate: async (fn: any) => true,
+  };
+  assert.equal(await isPageLoggedIn(loggedInApiPage), true);
+
+  const closedPage: any = {
+    isClosed: () => true,
+    url: () => "https://chat.qwen.ai/",
+  };
+  assert.equal(await isPageLoggedIn(closedPage), false);
 });
 test("cleanupOrphanProfiles removes directories not belonging to active accounts and stale dirs", () => {
   const tempBase = path.join(process.cwd(), ".tmp", "test-profiles-" + Date.now());
