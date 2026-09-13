@@ -302,6 +302,14 @@ function advanceMarkdownCodeState(
   let delimiterLength = initialDelimiterLength;
 
   for (let i = 0; i < text.length;) {
+    // Inline code spans (1 or 2 backticks) cannot cross line breaks per CommonMark §6.1.
+    // Only fenced code blocks (3+ backticks) span multiple lines.
+    if (text[i] === "\n" && delimiterLength < 3) {
+      delimiterLength = 0;
+      i++;
+      continue;
+    }
+
     if (text[i] !== "`") {
       i++;
       continue;
@@ -320,7 +328,6 @@ function advanceMarkdownCodeState(
 
     i += runLength;
   }
-
   return delimiterLength;
 }
 
@@ -331,6 +338,13 @@ function findNextToolOpenTagOutsideMarkdownCode(
   let delimiterLength = initialDelimiterLength;
 
   for (let i = 0; i < buffer.length;) {
+    // Inline code spans (1 or 2 backticks) cannot cross line breaks per CommonMark §6.1.
+    if (buffer[i] === "\n" && delimiterLength < 3) {
+      delimiterLength = 0;
+      i++;
+      continue;
+    }
+
     if (buffer[i] === "`") {
       let runLength = 1;
       while (i + runLength < buffer.length && buffer[i + runLength] === "`") {
@@ -346,7 +360,6 @@ function findNextToolOpenTagOutsideMarkdownCode(
       i += runLength;
       continue;
     }
-
     if (delimiterLength === 0 && buffer[i] === "<") {
       const sub = buffer.substring(i);
       for (const name of getOpenNames()) {
@@ -371,6 +384,13 @@ function findPartialToolOpenIndexOutsideMarkdownCode(
   const openNames = getOpenNames();
 
   for (let i = 0; i < buffer.length;) {
+    // Inline code spans (1 or 2 backticks) cannot cross line breaks per CommonMark §6.1.
+    if (buffer[i] === "\n" && delimiterLength < 3) {
+      delimiterLength = 0;
+      i++;
+      continue;
+    }
+
     if (buffer[i] === "`") {
       let runLength = 1;
       while (i + runLength < buffer.length && buffer[i + runLength] === "`") {
@@ -386,7 +406,6 @@ function findPartialToolOpenIndexOutsideMarkdownCode(
       i += runLength;
       continue;
     }
-
     if (delimiterLength === 0 && buffer[i] === "<") {
       const tailLower = buffer.substring(i).toLowerCase();
       if (!tailLower.includes(">")) {

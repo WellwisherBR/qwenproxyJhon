@@ -733,14 +733,15 @@ async function withQwenBrowserPage<T>(
   operationTimeoutMs = config.timeouts.page,
   recoverOnTimeout = true,
 ): Promise<T> {
-  // Keep the account page on the chat UI for normal browser operations. The
-  // personalization helper passes /settings/personalization explicitly; an
-  // omitted target must not leave a same-origin settings page in place.
-  const effectiveTargetPath = targetPath || "/";
-  const targetUrl = qwenUrl(effectiveTargetPath);
+  // When targetPath is omitted, any page under the Qwen origin can run the
+  // in-page evaluate/fetch without an expensive, stream-breaking page.goto.
+  // Only navigate when targetPath is explicitly provided or when the page is not
+  // on the Qwen origin yet (e.g. about:blank).
+  const targetUrl = qwenUrl(targetPath || "/");
   const targetOrigin = new URL(targetUrl).origin;
-  const normalizedTargetPath =
-    new URL(targetUrl).pathname.replace(/\/+$/, "") || "/";
+  const normalizedTargetPath = targetPath
+    ? new URL(targetUrl).pathname.replace(/\/+$/, "") || "/"
+    : null;
 
   return withAccountPage(
     accountId,
@@ -755,10 +756,11 @@ async function withQwenBrowserPage<T>(
         // Navigate below when the current page has no usable URL.
       }
 
-      if (
+      const needsNavigation =
         currentOrigin !== targetOrigin ||
-        (normalizedTargetPath && currentPath !== normalizedTargetPath)
-      ) {
+        (normalizedTargetPath !== null && currentPath !== normalizedTargetPath);
+
+      if (needsNavigation) {
         await page.goto(targetUrl, {
           waitUntil: "domcontentloaded",
           timeout: Math.min(config.timeouts.navigation, operationTimeoutMs),
@@ -773,44 +775,7 @@ async function withQwenBrowserPage<T>(
   );
 }
 
-async function withQwenPersonalizationPage<T>(
-  accountId: string,
-  fn: (page: Page) => Promise<T>,
-  operationTimeoutMs = config.timeouts.page,
-  recoverOnTimeout = true,
-): Promise<T> {
-  return withQwenBrowserPage(
-    accountId,
-    async (page) => {
-      try {
-        return await fn(page);
-      } finally {
-        if (!page.isClosed()) {
-          try {
-            const currentUrl = new URL(page.url());
-            const currentPath = currentUrl.pathname.replace(/\/+$/, "") || "/";
-            if (currentUrl.origin !== qwenOrigin() || currentPath !== "/") {
-              await page.goto(qwenUrl("/"), {
-                waitUntil: "domcontentloaded",
-                timeout: Math.min(config.timeouts.navigation, operationTimeoutMs),
-              });
-            }
-          } catch (error) {
-            // Do not mask the personalization request result if restoring the
-            // normal chat page fails; the next normal operation will retry it.
-            logger.warn("[Qwen] Could not restore chat page after personalization", {
-              accountId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-      }
-    },
-    "/settings/personalization",
-    operationTimeoutMs,
-    recoverOnTimeout,
-  );
-}
+
 
 /**
  * Build minimal headers for browser-side fetch. The browser automatically

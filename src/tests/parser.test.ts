@@ -778,3 +778,33 @@ test("StreamingToolParser: recovers tool call with dropped opening quote before 
   assert.strictEqual(allCalls[0].name, "Edit");
   assert.ok((allCalls[0].arguments as any).old_string.includes("// MCP"));
 });
+
+test("StreamingToolParser: parses <qpx_call> even after an unclosed stray backtick on an earlier line", () => {
+  const BASH_TOOLS = [
+    {
+      name: "bash",
+      description: "Execute bash",
+      parameters: {
+        type: "object",
+        properties: { command: { type: "string" }, timeout: { type: "number" } },
+      },
+    } as any,
+  ];
+  const parser = new StreamingToolParser(BASH_TOOLS);
+  // Exact reproduction of the failure observed in production:
+  // model outputs a stray single backtick in lead-in prose, then tool calls on next lines
+  const chunk1 = "` tags. Let me explore the Go code.\n";
+  const chunk2 = '<qpx_call>\n{"name": "bash", "arguments": {"command": "find . -type f", "timeout": 10000}}\n</qpx_call>';
+
+  const res1 = parser.feed(chunk1);
+  const res2 = parser.feed(chunk2);
+  const flushed = parser.flush();
+
+  const allCalls = [...res1.toolCalls, ...res2.toolCalls, ...flushed.toolCalls];
+  assert.strictEqual(allCalls.length, 1, "tool call must be parsed despite earlier stray backtick");
+  assert.strictEqual(allCalls[0].name, "bash");
+  assert.strictEqual((allCalls[0].arguments as any).command, "find . -type f");
+  // No raw <qpx_call> tags must leak to client text
+  const totalText = res1.text + res2.text + flushed.text;
+  assert.ok(!totalText.includes("<qpx_call>"), "raw <qpx_call> must never leak in client text");
+});

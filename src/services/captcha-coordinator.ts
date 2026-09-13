@@ -111,26 +111,27 @@ export async function recoverBaxiaCaptcha(
 
   // The slider itself waits up to 5s for each attempt. Keep the page
   // operation alive for the full bounded solver budget so a slow challenge
-  // cannot be mistaken for a stuck browser and reset the account context.
+  // cannot be mistaken for a stuck browser. Do not clamp to timeouts.page.
   // Two navigations (open the challenge, return to the chat page) are part of
   // the recovery, so their budget belongs in the same total.
-  const solverOperationTimeoutMs = Math.min(
-    config.timeouts.page,
-    Math.max(
-      15_000,
-      config.captcha.timeoutMs +
-        config.captcha.maxAttempts *
-          (3_000 + config.captcha.retryDelayMs + config.captcha.settleMs) +
-        2 * CHALLENGE_NAVIGATION_TIMEOUT_MS,
-    ),
+  const solverOperationTimeoutMs = Math.max(
+    15_000,
+    config.captcha.timeoutMs +
+      config.captcha.maxAttempts *
+        (3_000 + config.captcha.retryDelayMs + config.captcha.settleMs) +
+      2 * CHALLENGE_NAVIGATION_TIMEOUT_MS,
   );
 
   try {
+    // recoverOnTimeout: false ensures that if the captcha solve times out,
+    // withAccountPage does NOT destructively kill the browser context, which
+    // previously caused "Target page, context or browser has been closed" mid-slider.
     const solved = await withAccountPage(
       accountId,
       (page) => solveChallengeOnPage(page, challengeUrl),
       solverOperationTimeoutMs,
       Math.min(config.timeouts.page, 5_000),
+      false,
     );
 
     metrics.histogram("captcha.solve.duration", Date.now() - startedAt, {

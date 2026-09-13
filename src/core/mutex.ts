@@ -102,6 +102,16 @@ export class Mutex {
     this.lockedByKey = "";
   }
 
+  /**
+   * Heartbeat the lock: extend lockedAt while the holder is actively making progress.
+   * Prevents premature force-release during long-running streaming generations.
+   */
+  touch(key?: string): void {
+    if (this.locked && (!key || this.lockedByKey === key)) {
+      this.lockedAt = Date.now();
+    }
+  }
+
   /** Returns true if the mutex is not locked and has no waiting queue. */
   isIdle(): boolean {
     return !this.locked && this.queue.length === 0;

@@ -112,10 +112,11 @@ const personalizationLocks = new Map<string, Mutex>();
 		mutex = new Mutex(
 			`chat:${chatId.substring(0, 8)}`,
 			// The chat lock is held for the whole stream lifetime. A long
-			// generation (reasoning + huge context) can legitimately exceed the
-			// global 120s hold limit; use the same budget as the acquire timeout
-			// so the force-release never kills a healthy mid-stream turn.
-			timeoutMs,
+			// generation (reasoning + huge context) can legitimately take 4-5 min;
+			// use config.timeouts.totalRequestTimeout (600s) as the max hold limit, while
+			// touchChatLock extends it on every chunk so active streams are never
+			// force-released mid-generation.
+			config.timeouts.totalRequestTimeout,
 		);
 		chatLocks.set(chatId, mutex);
 	}
@@ -139,6 +140,12 @@ const personalizationLocks = new Map<string, Mutex>();
 			chatLocks.delete(chatId);
 		}
 	};
+}
+
+export function touchChatLock(chatId: string | undefined): void {
+	if (!chatId) return;
+	const mutex = chatLocks.get(chatId);
+	mutex?.touch();
 }
 
 async function acquirePersonalizationLock(

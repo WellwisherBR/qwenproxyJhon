@@ -436,3 +436,24 @@ test("auth-playwright: falls back to first configured account when no account id
     restoreAccounts(existing);
   }
 });
+
+test("initPlaywrightForAccount: deduplicates concurrent in-flight calls for the same account", async () => {
+  const { initPlaywrightForAccount, registerPlaywrightAccountForTests, unregisterPlaywrightAccountForTests } =
+    await import("../services/playwright.ts");
+
+  const accountId = "test-dedup-init";
+  unregisterPlaywrightAccountForTests(accountId);
+
+  registerPlaywrightAccountForTests(accountId, {} as any, Date.now());
+  try {
+    const rawAccount = { id: accountId, email: "test@example.com", password: "pwd" };
+    const [r1, r2] = await Promise.all([
+      initPlaywrightForAccount(rawAccount as any),
+      initPlaywrightForAccount(rawAccount as any),
+    ]);
+    assert.strictEqual(r1, undefined);
+    assert.strictEqual(r2, undefined);
+  } finally {
+    unregisterPlaywrightAccountForTests(accountId);
+  }
+});

@@ -30,6 +30,7 @@ import {
   shouldRetryInvalidInputOnSameAccount,
 } from "./retry-policy.ts";
 import type { Message, OpenAIRequest, Usage } from "../../utils/types.ts";
+import { touchChatLock } from "./account.ts";
 import { StreamingToolParser } from "../../tools/parser.ts";
 import {
   getStream,
@@ -351,7 +352,7 @@ export async function processNonStreamingResponse(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
+      touchChatLock(currentUiSessionId);
       const decoded = decoder.decode(value, { stream: true });
       if (!sawSseProtocol) {
         protocolBuffer += decoded;
@@ -1598,7 +1599,7 @@ export async function processStreamingResponse(
             throw readError;
           }
           if (readResult.done) break;
-
+          touchChatLock(currentUiSessionId);
           buffer += decoder.decode(readResult.value, { stream: true });
           lineEnd = buffer.indexOf("\n");
           if (lineEnd === -1) continue;
@@ -2141,7 +2142,7 @@ export async function processStreamingResponse(
           retryReadLoop: while (true) {
             const { done, value } = await retryReader.read();
             if (done) break;
-
+            touchChatLock(currentUiSessionId);
             retryBuf += retryDecoder.decode(value, { stream: true });
             let lineStart = 0;
             let lineEnd = retryBuf.indexOf("\n", lineStart);

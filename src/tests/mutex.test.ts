@@ -108,3 +108,30 @@ test("Mutex: release is idempotent", async () => {
   release(); // must not throw or double-release
   assert.strictEqual(m.isIdle(), true);
 });
+
+test("Mutex: touch extends hold time and prevents premature stale force-release", async () => {
+  const m = new Mutex("t-touch", 60); // 60ms hold limit
+  const release = await m.acquire(1000, "active-stream");
+
+  // Wait 40ms, touch, wait 40ms, touch (total 80ms > 60ms limit)
+  await tick(40);
+  m.touch("active-stream");
+  await tick(40);
+  m.touch("active-stream");
+
+  // A waiter trying to acquire should still be blocked because active-stream is heartbeating
+  let waiterAcquired = false;
+  const waiterPromise = m.acquire(200, "waiter").then((r) => {
+    waiterAcquired = true;
+    return r;
+  });
+
+  await tick(20);
+  assert.strictEqual(waiterAcquired, false, "waiter must not steal an actively heartbeating lock");
+
+  release();
+  const waiterRelease = await waiterPromise;
+  assert.strictEqual(waiterAcquired, true);
+  waiterRelease();
+  assert.strictEqual(m.isIdle(), true);
+});
