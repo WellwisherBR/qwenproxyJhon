@@ -1290,6 +1290,7 @@ export async function initPlaywrightForAccount(
   rawAccount: QwenAccount,
   headless = true,
   browserType: BrowserType = "chromium",
+  options: { skipHeaderCapture?: boolean } = {},
 ): Promise<void> {
   const account = await resolveAccountCredentials(rawAccount);
   if (accountPages.has(account.id)) {
@@ -1346,11 +1347,19 @@ export async function initPlaywrightForAccount(
 
     let acctContext: BrowserContext;
     try {
-      acctContext = await engine.launchPersistentContext(profilePath, launchOptions);
+      acctContext = await withTimeout(
+        engine.launchPersistentContext(profilePath, launchOptions),
+        30_000,
+        `O navegador não iniciou em 30s para a conta ${maskEmail(account.email)}. Se o QwenProxy estiver rodando em outro terminal, feche-o antes de executar este comando.`,
+      );
     } catch (launchErr: any) {
       if (launchErr?.message?.includes("Executable doesn't exist")) {
         autoInstallPlaywrightChromium();
-        acctContext = await engine.launchPersistentContext(profilePath, launchOptions);
+        acctContext = await withTimeout(
+          engine.launchPersistentContext(profilePath, launchOptions),
+          30_000,
+          `O navegador não iniciou em 30s para a conta ${maskEmail(account.email)}.`,
+        );
       } else {
         throw launchErr;
       }
@@ -1472,7 +1481,9 @@ export async function initPlaywrightForAccount(
         );
         throw validationError;
       }
-      await captureQwenHeaders(account.id);
+      if (!options.skipHeaderCapture) {
+        await captureQwenHeaders(account.id);
+      }
 
       // Header capture may leave the UI on a generated chat page. Return the
       // primary tab to the canonical chat home.
@@ -1559,11 +1570,19 @@ export async function validateAccountLogin(
 
     let acctContext: BrowserContext;
     try {
-      acctContext = await engine.launchPersistentContext(profilePath, launchOptions);
+      acctContext = await withTimeout(
+        engine.launchPersistentContext(profilePath, launchOptions),
+        30_000,
+        `O navegador não iniciou em 30s para a conta ${maskEmail(account.email)}. Se o QwenProxy estiver rodando em outro terminal, feche-o antes de executar este comando.`,
+      );
     } catch (launchErr: any) {
       if (launchErr?.message?.includes("Executable doesn't exist")) {
         autoInstallPlaywrightChromium();
-        acctContext = await engine.launchPersistentContext(profilePath, launchOptions);
+        acctContext = await withTimeout(
+          engine.launchPersistentContext(profilePath, launchOptions),
+          30_000,
+          `O navegador não iniciou em 30s para a conta ${maskEmail(account.email)}.`,
+        );
       } else {
         throw launchErr;
       }

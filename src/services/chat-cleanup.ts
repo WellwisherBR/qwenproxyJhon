@@ -10,32 +10,52 @@ import {
   closeAllPlaywright,
 } from "./playwright.ts";
 import { isAuthMockEnabled } from "./auth-playwright.ts";
+import { maskEmail } from "../core/logger.ts";
 export interface DeleteChatsResult {
   attempted: number;
   succeeded: number;
   mode: "accounts";
 }
 
-async function ensurePlaywrightSession(account: QwenAccount): Promise<void> {
+async function ensurePlaywrightSession(
+  account: QwenAccount,
+  index = 1,
+  total = 1,
+): Promise<void> {
   if (isPlaywrightInitialized(account.id) || isAuthMockEnabled()) return;
 
   const credentials = getAccountCredentials(account.id);
   if (!credentials) {
-    throw new Error(`Account ${account.id} credentials not found`);
+    throw new Error(`Credenciais da conta ${account.id} não encontradas.`);
   }
 
   console.log(
-    `[DeleteChats] Initializing Playwright session for ${account.email}...`,
+    `[DeleteChats] [${index}/${total}] Abrindo navegador para ${maskEmail(account.email)}...`,
   );
-  await initPlaywrightForAccount(credentials);
+  await initPlaywrightForAccount(credentials, true, "chromium", {
+    skipHeaderCapture: true,
+  });
   console.log(
-    `✅ [DeleteChats] Playwright session ready for ${account.email}.`,
+    `✅ [DeleteChats] [${index}/${total}] Sessão pronta para ${maskEmail(account.email)}.`,
   );
 }
 
-export async function deleteChatsForAccount(account: QwenAccount): Promise<boolean> {
-  await ensurePlaywrightSession(account);
-  return deleteAllQwenChats(account.id);
+export async function deleteChatsForAccount(
+  account: QwenAccount,
+  index = 1,
+  total = 1,
+): Promise<boolean> {
+  await ensurePlaywrightSession(account, index, total);
+  console.log(
+    `🗑️  [DeleteChats] [${index}/${total}] Apagando conversas remotas de ${maskEmail(account.email)}...`,
+  );
+  const ok = await deleteAllQwenChats(account.id);
+  if (ok) {
+    console.log(
+      `✅ [DeleteChats] [${index}/${total}] Conversas apagadas com sucesso para ${maskEmail(account.email)}.`,
+    );
+  }
+  return ok;
 }
 
 export async function deleteChatsForAccountId(accountId: string): Promise<boolean> {
@@ -65,13 +85,16 @@ export async function deleteChatsForConfiguredAccounts(keepBrowserOpen = false):
   let succeeded = 0;
 
   try {
-    for (const account of accounts) {
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      const currentIdx = i + 1;
+      const totalCount = accounts.length;
       try {
-        const ok = await deleteChatsForAccount(account);
+        const ok = await deleteChatsForAccount(account, currentIdx, totalCount);
         if (ok) succeeded++;
       } catch (error) {
         console.error(
-          `[DeleteChats] Failed to delete chats for ${account.email}:`,
+          `❌ [DeleteChats] [${currentIdx}/${totalCount}] Falha ao apagar conversas de ${maskEmail(account.email)}:`,
           error instanceof Error ? error.message : String(error),
         );
       }

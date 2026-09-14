@@ -1916,14 +1916,31 @@ function formatPublicQwenModel(model: Record<string, unknown>): PublicQwenModel 
 }
 
 export async function deleteAllQwenChats(accountId?: string): Promise<boolean> {
-  const { headers } = await getQwenHeaders(false, accountId);
+  let requestHeaders: Record<string, string>;
+  if (isAuthMockEnabled()) {
+    const { headers } = await getQwenHeaders(false, accountId);
+    requestHeaders = buildCapturedQwenHeaders(headers, {
+      referer: qwenUrl("/settings/chats"),
+    });
+  } else {
+    // In live mode, requestQwenTextInBrowser executes inside the authenticated
+    // browser page where session cookies are attached automatically.
+    // Bypassing getQwenHeaders avoids triggering captureQwenHeaders (which sends
+    // a dummy chat completion to intercept anti-fraud tokens not needed for deletions).
+    requestHeaders = {
+      source: "web",
+      version: "0.2.89",
+      timezone: new Date().toString().split(" (")[0],
+      "x-request-id": crypto.randomUUID(),
+      Referer: qwenUrl("/settings/chats"),
+    };
+  }
+
   const response = await requestQwenTextInBrowser(
     accountId,
     "DELETE",
     "/api/v2/chats/",
-    buildCapturedQwenHeaders(headers, {
-      referer: qwenUrl("/settings/chats"),
-    }),
+    requestHeaders,
     undefined,
     { referrer: qwenUrl("/settings/chats") },
   );
