@@ -492,6 +492,11 @@ function injectToolInstructions(body: OpenAIRequest): string {
 
   if (!shouldParseToolCalls) return "";
 
+  // If tool_choice is explicitly "none", suppress tool instructions so the model
+  // generates a regular conversational message per OpenAI / Anthropic spec.
+  if (bodyAny.tool_choice === "none" || bodyAny.tool_choice?.type === "none") {
+    return "";
+  }
   if (isToolcallDebugEnabled()) {
     logger.debug("[chat] tools provided in request", {
       toolsCount: declaredTools.length,

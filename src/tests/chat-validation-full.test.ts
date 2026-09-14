@@ -378,6 +378,24 @@ test("parseRequestBody builds tool instructions and logs forced tool_choice", as
   assert.ok(parsed.toolInstructions.includes("alpha"));
 });
 
+test("parseRequestBody suppresses tool instructions when tool_choice is 'none'", async () => {
+  const parsed = await parseRequestBody(
+    mockContext({
+      model: "qwen3.7-plus",
+      messages: [{ role: "user", content: "talk without tools" }],
+      tools: [
+        {
+          type: "function",
+          function: { name: "alpha", parameters: { type: "object" } },
+        },
+      ],
+      tool_choice: "none",
+    }),
+  );
+  assert.strictEqual(parsed.shouldParseToolCalls, false);
+  assert.strictEqual(parsed.toolInstructions, "");
+});
+
 // ── reasoning_effort (OpenAI chat spec: none|minimal|low|medium|high|xhigh|max)
 // Precedence: an explicit model suffix wins; effort only acts on unsuffixed
 // models. Absent field must be a complete no-op (zero regression).
