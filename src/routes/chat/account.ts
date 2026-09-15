@@ -36,6 +36,7 @@ import {
 } from "../../core/account-concurrency.ts";
 import { isAuthMockEnabled } from "../../services/auth-playwright.ts";
 import { isPlaywrightInitialized, refreshHeaders } from "../../services/playwright.ts";
+import { enqueueOrphanChatDeletion } from "../../services/chat-cleanup.ts";
 import {
 	clearAllSessionsForAccount,
 	createQwenStream,
@@ -1720,12 +1721,15 @@ async function tryCreateStreamWithRetry(
 				// Do NOT persist sticky binding until create succeeds — premature empty
 				// chatSessionId writes make subsequent turns rotate/lose context.
 				if (params.useThreadNative) {
+					const abandonedChatId = params.existingThread?.chatSessionId;
+					if (abandonedChatId) {
+						enqueueOrphanChatDeletion(currentAccountId, abandonedChatId, policy.reason);
+					}
 					params.existingThread = null;
 					params.finalPrompt = params.fullPrompt;
 					params.messageCount = params.fullMessageCount ?? params.messageCount;
 					params.forceNewChat = true;
 				}
-
 				await new Promise((resolve) =>
 					setTimeout(
 						resolve,
@@ -1749,12 +1753,15 @@ async function tryCreateStreamWithRetry(
 			console.warn(
 				`🔄 [Chat] Forcing new chat/full context | reason=${policy.reason}`,
 			);
+			const abandonedChatId = params.existingThread?.chatSessionId;
+			if (abandonedChatId) {
+				enqueueOrphanChatDeletion(currentAccountId, abandonedChatId, policy.reason);
+			}
 			params.existingThread = null;
 			params.finalPrompt = params.fullPrompt;
 			params.messageCount = params.fullMessageCount ?? params.messageCount;
 			params.forceNewChat = true;
 		}
-
 		// Drop files on retry for invalid_input to isolate file-related errors
 		if (policy.dropFiles && params.allFiles.length > 0) {
 			console.warn(

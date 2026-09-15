@@ -53,6 +53,8 @@ export {
   updateSessionParent,
   invalidateLogicalThreadParent,
   clearAllSessionsForAccount,
+  removeSessionByChatId,
+  isChatSessionActive,
   getSessionParent,
 } from "./qwen-thread-state.ts";
 export type { LogicalThreadEntry } from "./qwen-thread-state.ts";
@@ -74,6 +76,8 @@ import {
 } from "./qwen-errors.ts";
 import {
   clearAllSessionsForAccount,
+  removeSessionByChatId,
+  isChatSessionActive,
   getSessionParent,
   updateSessionParent,
 } from "./qwen-thread-state.ts";
@@ -1975,6 +1979,112 @@ export async function deleteAllQwenChats(accountId?: string): Promise<boolean> {
 
   clearAllSessionsForAccount(accountId || "global");
   return true;
+}
+
+export interface RemoteQwenChat {
+  id: string;
+  title: string;
+  updated_at: number | string;
+  created_at: number | string;
+}
+
+/**
+ * Deletes a single chat session by ID on Qwen Web.
+ */
+export async function deleteSingleQwenChat(
+  accountId: string | undefined,
+  chatId: string,
+): Promise<boolean> {
+  if (!chatId) return false;
+
+  if (isAuthMockEnabled()) {
+    const url = qwenUrl(`/api/v2/chats/${encodeURIComponent(chatId)}`);
+    const response = await fetch(url, {
+      method: "DELETE",
+    });
+    removeSessionByChatId(chatId);
+    return response.ok;
+  }
+
+  const requestHeaders: Record<string, string> = {
+    source: "web",
+    version: "0.2.89",
+    timezone: new Date().toString().split(" (")[0],
+    "x-request-id": crypto.randomUUID(),
+    Referer: qwenUrl(`/c/${encodeURIComponent(chatId)}`),
+  };
+
+  try {
+    const response = await requestQwenTextInBrowser(
+      accountId,
+      "DELETE",
+      `/api/v2/chats/${encodeURIComponent(chatId)}`,
+      requestHeaders,
+      undefined,
+      { referrer: qwenUrl(`/c/${encodeURIComponent(chatId)}`), noMutexRecovery: true },
+    );
+
+    const { json: parsed } = await readJsonTextResponse(response, {
+      strict: false,
+    });
+
+    const success = response.ok && parsed?.success === true && parsed?.data?.status === true;
+    if (success) {
+      removeSessionByChatId(chatId);
+    }
+    return success;
+  } catch (error) {
+    logger.debug("[Qwen] deleteSingleQwenChat failed", {
+      accountId,
+      chatId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/**
+ * Fetch remote chat list from Qwen Web.
+ */
+export async function fetchRemoteQwenChats(
+  accountId?: string,
+): Promise<RemoteQwenChat[]> {
+  if (isAuthMockEnabled()) {
+    try {
+      const response = await fetch(qwenUrl("/api/v2/chats/?page=1&exclude_project=true"));
+      const json: any = await response.json().catch(() => null);
+      if (json?.success && Array.isArray(json.data)) {
+        return json.data;
+      }
+    } catch {}
+    return [];
+  }
+
+  const requestHeaders: Record<string, string> = {
+    version: "0.2.89",
+    timezone: new Date().toString().split(" (")[0],
+    "x-request-id": crypto.randomUUID(),
+    Referer: qwenUrl("/settings/chats"),
+  };
+
+  try {
+    const response = await requestQwenTextInBrowser(
+      accountId,
+      "GET",
+      "/api/v2/chats/?page=1&exclude_project=true",
+      requestHeaders,
+      undefined,
+      { referrer: qwenUrl("/settings/chats"), noMutexRecovery: true },
+    );
+    if (!response.ok) return [];
+    const json: any = await response.json().catch(() => null);
+    if (json?.success && Array.isArray(json.data)) {
+      return json.data;
+    }
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchQwenModels(

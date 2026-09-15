@@ -814,6 +814,9 @@ export async function startServer(options?: {
       await import("../core/account-concurrency.ts");
     startLeaseSweepTimer();
 
+    const { scheduleStartupChatCleanup } =
+      await import("../services/chat-cleanup.ts");
+    scheduleStartupChatCleanup();
     const serverInstance = serve({
       fetch: app.fetch,
       port: config.server.port,
