@@ -261,7 +261,10 @@ export function computeDynamicIdleTimeout(opts: {
 }): number {
   const payloadMB = opts.payloadSize / (1024 * 1024);
   const dynamic = opts.baseTimeoutMs + Math.ceil(payloadMB * 30_000);
-  if (opts.parallelEscape && !opts.enableThinking) {
+  // The tight 15s cap is ONLY for small auxiliary requests (e.g. title generation).
+  // Larger parallel requests (such as Zed/OMP context compaction with big history)
+  // need the full dynamic timeout so they do not time out at 15s.
+  if (opts.parallelEscape && !opts.enableThinking && opts.payloadSize < 16_384) {
     return Math.min(15_000, dynamic);
   }
   return dynamic;
@@ -857,25 +860,33 @@ export async function requestQwenTextInBrowser(
 
   const evaluateRequest = (page: Page) =>
     page.evaluate(
-      async ({ url, method, headers, body, referrer }: {
+      async ({ url, method, headers, body, referrer, timeoutMs }: {
         url: string;
         method: "GET" | "POST" | "DELETE";
         headers: Record<string, string>;
         body?: string;
         referrer?: string;
+        timeoutMs: number;
       }): Promise<BrowserTextResponse> => {
-        const response = await fetch(url, {
-          method,
-          credentials: "include",
-          headers,
-          body,
-          ...(referrer ? { referrer } : {}),
-        });
-        return {
-          status: response.status,
-          contentType: response.headers.get("content-type") || "",
-          raw: await response.text(),
-        };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch(url, {
+            method,
+            credentials: "include",
+            headers,
+            body,
+            signal: controller.signal,
+            ...(referrer ? { referrer } : {}),
+          });
+          return {
+            status: response.status,
+            contentType: response.headers.get("content-type") || "",
+            raw: await response.text(),
+          };
+        } finally {
+          clearTimeout(timeoutId);
+        }
       },
       {
         url,
@@ -883,6 +894,7 @@ export async function requestQwenTextInBrowser(
         headers: browserHeaders,
         body,
         referrer: options.referrer,
+        timeoutMs: options.timeoutMs ?? Math.min(config.timeouts.page, 20_000),
       },
     );
   const recoverOnTimeout = !options.noMutexRecovery;

@@ -960,8 +960,8 @@ function repairCommonMalformedToolJson(content: string): string {
       '$1"arguments": ',
     )
     .replace(
-      /([,{]\s*)arguments"\s*:/g,
-      '$1"arguments":',
+      /([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)"\s*:/g,
+      '$1"$2":',
     )
     .replace(
       /([,{]\s*)arguments\s*:\s*(?={|\[|")/g,

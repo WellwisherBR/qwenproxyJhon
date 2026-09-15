@@ -919,3 +919,26 @@ test("StreamingToolParser: bash truncation injects exit 1 guard to prevent dange
     "truncated bash command must append exit 1 so shell fails safely instead of running incomplete command",
   );
 });
+
+test("StreamingToolParser: recovers edit_file with missing opening quote on property key (e.g. ,old_text:)", () => {
+  const EDIT_TOOLS = [
+    {
+      name: "edit_file",
+      description: "edit file",
+      parameters: {
+        type: "object",
+        properties: { path: { type: "string" }, edits: { type: "array" } },
+      },
+    } as any,
+  ];
+  const parser = new StreamingToolParser(EDIT_TOOLS);
+  // Exact pattern from production logs:
+  const brokenInput =
+    '<qpx_call>\n{"name":"edit_file","arguments":{"edits":[{"new_text":"new",old_text":"old"}],"path":"file.java"}}\n</qpx_call>';
+  const res = parser.feed(brokenInput);
+  const flushed = parser.flush();
+  const calls = [...res.toolCalls, ...flushed.toolCalls];
+  assert.strictEqual(calls.length, 1, "tool call with missing quote on key must be repaired");
+  assert.strictEqual(calls[0].name, "edit_file");
+  assert.deepStrictEqual((calls[0].arguments as any).edits, [{ new_text: "new", old_text: "old" }]);
+});

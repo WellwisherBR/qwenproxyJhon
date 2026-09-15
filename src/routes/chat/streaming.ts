@@ -1841,6 +1841,34 @@ export async function processStreamingResponse(
         // executed, so the model can re-issue them.
         setToolCapNotice(logicalSessionId);
         await reader.cancel().catch(() => undefined);
+        // Explicitly tell Qwen to stop generating on the backend so the upstream chat
+        // settles immediately instead of remaining in "in progress" state for 30s.
+        const capSessionId = currentUiSessionId || logicalSessionId;
+        const capHeaders = getStream(completionId)?.headers;
+        if (capSessionId && targetResponseId && capHeaders?.cookie && capHeaders["user-agent"]) {
+          const capAccountId = currentAccountId;
+          void requestQwenTextInBrowser(
+            capAccountId,
+            "POST",
+            `/api/v2/chat/completions/stop?chat_id=${encodeURIComponent(capSessionId)}`,
+            buildQwenRequestHeaders({
+              cookie: capHeaders.cookie,
+              userAgent: capHeaders["user-agent"],
+              bxUa: capHeaders["bx-ua"],
+              bxUmidtoken: capHeaders["bx-umidtoken"],
+              bxV: capHeaders["bx-v"],
+              chatSessionId: capSessionId,
+            }),
+            JSON.stringify({
+              chat_id: capSessionId,
+              response_id: targetResponseId,
+            }),
+            {
+              referrer: qwenUrl(`/c/${encodeURIComponent(capSessionId)}`),
+              noMutexRecovery: true,
+            },
+          ).catch(() => undefined);
+        }
       }
 
       // Post-stream: error check + flush remaining content
