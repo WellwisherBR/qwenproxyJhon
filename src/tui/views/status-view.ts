@@ -14,9 +14,10 @@ export function renderProgressBar(
   colorFn: (s: string) => string = theme.cyan,
 ): string {
   const safePct = Math.max(0, Math.min(100, isNaN(pct) ? 0 : pct));
-  const filled = Math.round((safePct / 100) * width);
+  const rawFilled = Math.round((safePct / 100) * width);
+  const filled = safePct > 0.05 ? Math.max(1, rawFilled) : 0;
   const empty = Math.max(0, width - filled);
-  return colorFn("█".repeat(filled)) + theme.dim("░".repeat(empty));
+  return colorFn("█".repeat(filled)) + theme.muted("░".repeat(empty));
 }
 
 export class StatusView implements TuiView {
@@ -124,11 +125,10 @@ export class StatusView implements TuiView {
     const isOnline = data?.online ?? false;
     const contentH = Math.max(10, height);
 
-    // Two-column layout
-    const leftW = Math.max(38, Math.floor(width * 0.48));
+    // Two-column layout: left column needs at most 43 cols, giving maximum breathing room to accounts table
+    const leftW = Math.min(43, Math.max(38, Math.floor(width * 0.46)));
     this.lastLeftW = leftW;
     const rightW = Math.max(34, width - leftW - 1);
-
     // Left Column: System & Proxy Status
     const serverState = ServerManager.getInstance().getState();
     let onlineBadge: string;
@@ -219,15 +219,19 @@ export class StatusView implements TuiView {
     // Right Column: Accounts Pool Status
     const accounts = data?.accounts || [];
 
+    const availableCount = accounts.filter((a) => !a.onCooldown).length;
     const readyCount = accounts.filter((a) => !a.onCooldown && a.headersReady).length;
-    const poolPct = accounts.length > 0 ? Math.round((readyCount / accounts.length) * 100) : 0;
+    const standbyCount = accounts.filter((a) => !a.onCooldown && !a.headersReady).length;
+    const cooldownCount = accounts.filter((a) => a.onCooldown).length;
+
+    const poolPct = accounts.length > 0 ? Math.round((availableCount / accounts.length) * 100) : 0;
     const poolColor = poolPct >= 70 ? theme.green : poolPct >= 40 ? theme.yellow : theme.red;
     const poolBar = renderProgressBar(poolPct, 8, poolColor);
     const innerRightW = Math.max(30, rightW - 2);
-    const emailWidth = Math.max(16, innerRightW - 27);
+    const emailWidth = Math.max(16, Math.min(22, innerRightW - 25));
     const rightContent: string[] = [
       "",
-      `  ${theme.bold("Disponibilidade:")} [${poolBar}] ${poolColor(`${readyCount}/${accounts.length} (${poolPct}%)`)}`,
+      `  ${theme.bold("Disponibilidade:")} [${poolBar}] ${poolColor(`${availableCount}/${accounts.length} (${poolPct}%)`)}`,
       `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
       `  ${theme.dim(`#   ${pad("Conta", emailWidth)} Carga  Status`)}`,
       `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
@@ -236,7 +240,7 @@ export class StatusView implements TuiView {
     if (accounts.length === 0) {
       rightContent.push(`  ${theme.muted("Nenhuma conta adicionada. (Vá em [5] Contas)")}`);
     } else {
-      const maxVisibleAccounts = Math.max(6, boxHeight - 9);
+      const maxVisibleAccounts = Math.max(6, boxHeight - 7);
       accounts.slice(0, maxVisibleAccounts).forEach((acc, idx) => {
         const num = pad(String(idx + 1) + ".", 4);
         const name = pad(truncate(acc.emailOrName, emailWidth - 1), emailWidth);
@@ -268,24 +272,21 @@ export class StatusView implements TuiView {
         }
         rightContent.push(`  ${num}${name} ${loadBadge} ${status}`);
       });
-
-      // Pool quick summary in the footer of the right box
-      rightContent.push(`  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`);
-      const standbyCount = accounts.filter((a) => !a.onCooldown && !a.headersReady).length;
-      const cooldownCount = accounts.filter((a) => a.onCooldown).length;
-      const summaryParts: string[] = [];
-      if (readyCount > 0) summaryParts.push(`${readyCount} pronta(s)`);
-      if (standbyCount > 0) summaryParts.push(`${standbyCount} standby`);
-      if (cooldownCount > 0) summaryParts.push(`${cooldownCount} cd`);
-      rightContent.push(theme.muted(`  💡 ${summaryParts.join(" · ")} · Vá em [5] Contas`));
     }
 
+    const summaryParts: string[] = [];
+    if (readyCount > 0) summaryParts.push(`${readyCount} warm`);
+    if (standbyCount > 0) summaryParts.push(`${standbyCount} standby`);
+    if (cooldownCount > 0) summaryParts.push(`${cooldownCount} cd`);
+    const rightFooter = summaryParts.length > 0 ? `💡 ${summaryParts.join(" · ")} · [5] Contas` : undefined;
+
     const rightBox = drawBox({
-      title: `Contas Pool (${readyCount}/${accounts.length})`,
+      title: `Contas Pool (${availableCount}/${accounts.length})`,
       width: rightW,
       height: boxHeight,
       borderColor: theme.borderInactive,
       titleColor: theme.lavender,
+      footer: rightFooter,
       content: rightContent,
     });
 
