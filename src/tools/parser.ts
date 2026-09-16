@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { robustParseJSON, computeMissingJsonClosingTokens } from "../utils/json.ts";
 import { logger, isToolcallDebugEnabled } from "../core/logger.js";
+import { metrics } from "../core/metrics.ts";
 import type { ParsedToolCall } from "./types";
 import type { FunctionToolDefinition } from "./types";
 import {
@@ -1501,7 +1502,7 @@ export class StreamingToolParser {
     }
 
     this.emittedCallKeys.add(key);
-
+    metrics.increment("toolcalls.total");
     const incremental = this.activeIncrementalToolCall;
     const matchesIncrementalCall =
       incremental?.name === tc.name && incremental.startEmitted;
@@ -1725,6 +1726,7 @@ export class StreamingToolParser {
       failureReason: options.failureReason,
       recoveryAttempts: options.recoveryAttempts,
     });
+    metrics.increment("toolcalls.malformed");
   }
 
   private extractUndeclaredNamesFromContent(text: string): string[] {
@@ -1989,6 +1991,7 @@ export class StreamingToolParser {
           }
         }
         if (recovered) {
+          metrics.increment("toolcalls.recovered");
           if (isToolcallDebugEnabled()) {
             logger.debug("[parser] flush: recovery successful", {
               name: recovered.name,

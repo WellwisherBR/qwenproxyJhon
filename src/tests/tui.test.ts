@@ -1335,3 +1335,45 @@ test("TUI AccountsView: renders specific cooldown reasons for auth failure, rate
   assert.ok(render.includes("Motivo:"), "Right panel must display Motivo row");
   assert.ok(render.includes("Cota Excedida") || render.includes("RateLimit"), "Right panel must explain rate limit");
 });
+
+test("TUI StatusView: renders rich traffic, latency, delta, tool call and cleanup metrics", () => {
+  const view = new StatusView();
+  const mockSnapshot = {
+    online: true,
+    port: 7936,
+    host: "127.0.0.1",
+    uptimeSeconds: 3600,
+    rssMb: 210,
+    systemMemoryPct: 2.5,
+    activeStreams: 2,
+    waitingStreams: 0,
+    metrics: {
+      requestsTotal: 1250,
+      requestsErrors: 5,
+      successRate: 99.6,
+      latencyAvgMs: 820,
+      deltasCount: 920,
+      fullReplaysCount: 130,
+      deltaRatio: 87.6,
+      toolCallsCount: 450,
+      toolCallsRecovered: 12,
+      captchasDetected: 3,
+      captchasSolved: 3,
+      chatsCleaned: 40,
+    },
+    accounts: [
+      { id: "1", emailOrName: "acc1@test.com", priority: 1, onCooldown: false, remainingCooldownMs: 0, headersReady: true, isInitialized: true, activeStreams: 1 },
+      { id: "2", emailOrName: "acc2@test.com", priority: 1, onCooldown: true, remainingCooldownMs: 300000, cooldownReason: "RateLimited", headersReady: true, isInitialized: true, activeStreams: 0 },
+    ],
+  };
+
+  const lines = view.render(100, 24, mockSnapshot as any);
+  const fullText = stripAnsi(lines.join("\n"));
+
+  assert.ok(fullText.includes("1250"), "Must render requestsTotal");
+  assert.ok(fullText.includes("99.6%"), "Must render successRate");
+  assert.ok(fullText.includes("820ms"), "Must render latencyAvgMs");
+  assert.ok(fullText.includes("87.6%"), "Must render deltaRatio");
+  assert.ok(fullText.includes("450"), "Must render toolCallsCount");
+  assert.ok(fullText.includes("40"), "Must render chatsCleaned");
+});

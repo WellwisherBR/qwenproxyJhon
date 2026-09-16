@@ -272,6 +272,22 @@ app.get("/health", async (c) => {
     activeAccounts: (await import("../services/playwright.js")).getActivePlaywrightAccountIds(),
     metrics: {
       cache: await cache?.getStats(),
+      requestsTotal: Number(metrics.get("requests.total")?.value ?? 0),
+      requestsErrors: Number(metrics.get("requests.errors")?.value ?? 0),
+      latencyAvgMs: (() => {
+        const hist = metrics.get("latency.request")?.value;
+        if (hist && typeof hist === "object" && (hist as any).count > 0) {
+          return Math.round((hist as any).sum / (hist as any).count);
+        }
+        return 0;
+      })(),
+      deltasCount: Number(metrics.get("requests.delta")?.value ?? 0),
+      fullReplaysCount: Number(metrics.get("requests.full")?.value ?? 0),
+      toolCallsCount: Number(metrics.get("toolcalls.total")?.value ?? 0),
+      toolCallsRecovered: Number(metrics.get("toolcalls.recovered")?.value ?? 0),
+      captchasDetected: Number(metrics.get("captcha.challenges.detected")?.value ?? 0),
+      captchasSolved: Number(metrics.get("captcha.solves.succeeded")?.value ?? 0),
+      chatsCleaned: Number(metrics.get("chats.cleaned")?.value ?? 0),
     },
   });
 });

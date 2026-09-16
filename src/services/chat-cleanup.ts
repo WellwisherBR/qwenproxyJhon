@@ -20,6 +20,7 @@ import { config } from "../core/config.ts";
 import { isAccountBusy } from "../core/account-concurrency.ts";
 import { isChatSessionActive } from "./qwen-thread-state.ts";
 import { sleep } from "./human-behavior.ts";
+import { metrics } from "../core/metrics.ts";
 
 export interface DeleteChatsResult {
   attempted: number;
@@ -190,6 +191,7 @@ async function processOrphanChatQueue(): Promise<void> {
       try {
         const ok = await deleteSingleQwenChat(entry.accountId, entry.chatId);
         if (ok) {
+          metrics.increment("chats.cleaned");
           logger.debug("[ChatCleanup] Deleted orphan chat", {
             accountId: entry.accountId,
             chatId: entry.chatId,
@@ -247,6 +249,7 @@ export async function cleanOldChatsForAccount(
         const ok = await deleteSingleQwenChat(accountId, chat.id);
         if (ok) {
           cleaned++;
+          metrics.increment("chats.cleaned");
           await sleep(300);
         }
       }

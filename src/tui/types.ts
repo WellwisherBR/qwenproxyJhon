@@ -21,6 +21,22 @@ export interface ProxyStatusSnapshot {
   systemMemoryPct?: number;
   activeStreams?: number;
   waitingStreams?: number;
+  metrics?: {
+    requestsTotal: number;
+    requestsErrors: number;
+    successRate: number;
+    latencyAvgMs: number;
+    deltasCount: number;
+    fullReplaysCount: number;
+    deltaRatio: number;
+    toolCallsCount: number;
+    toolCallsRecovered: number;
+    captchasDetected: number;
+    captchasSolved: number;
+    chatsCleaned: number;
+    cacheHitRatio?: number;
+    cacheBytesSaved?: number;
+  };
   accounts: Array<{
     id: string;
     emailOrName: string;
@@ -31,5 +47,7 @@ export interface ProxyStatusSnapshot {
     cooldownReason?: string | null;
     headersReady: boolean;
     isInitialized?: boolean;
+    activeStreams?: number;
+    streamLimit?: number;
   }>;
 }

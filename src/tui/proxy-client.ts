@@ -13,6 +13,7 @@ import {
 import { isPlaywrightInitialized } from "../services/playwright.ts";
 import { getAccountConcurrencySnapshot } from "../core/account-concurrency.ts";
 import { getRssUsageSnapshot } from "../core/memory-usage.ts";
+import { metrics } from "../core/metrics.ts";
 import type { ProxyStatusSnapshot } from "./types.ts";
 
 export function maskAccountIdentifier(idOrEmail: string): string {
@@ -55,6 +56,7 @@ let lastOnlineState = false;
 let lastOverallStatus = "offline";
 let lastServerReadyAccounts: Set<string> | null = null;
 let lastServerActiveAccounts: Set<string> | null = null;
+let lastMetricsData: any = null;
 export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
   const port = config.server?.port || 7936;
   const configuredHost = config.server?.host;
@@ -78,6 +80,9 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
           }
           if (Array.isArray(data.activeAccounts)) {
             lastServerActiveAccounts = new Set(data.activeAccounts);
+          }
+          if (data.metrics) {
+            lastMetricsData = data.metrics;
           }
         } else {
           lastOnlineState = false;
@@ -128,21 +133,31 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
       };
     });
   }
-  const accounts = cachedAccounts;
   const online = lastOnlineState;
   const overallStatus = lastOverallStatus;
 
   // Concurrency stats
   let activeStreams = 0;
   let waitingStreams = 0;
+  const concurrencyMap = new Map<string, { active: number; waiting: number; limit: number }>();
   try {
     const snapshot = getAccountConcurrencySnapshot();
     for (const item of snapshot) {
       activeStreams += item.active;
       waitingStreams += item.waiting;
+      concurrencyMap.set(item.accountId, item);
     }
   } catch {}
 
+  // Attach concurrency to accounts
+  const accounts = cachedAccounts.map((acc) => {
+    const concurrency = concurrencyMap.get(acc.id);
+    return {
+      ...acc,
+      activeStreams: concurrency?.active ?? 0,
+      streamLimit: concurrency?.limit ?? config.concurrency.maxStreamsPerAccount,
+    };
+  });
   // RAM usage
   let rssMb = 0;
   let systemMemoryPct = 0;
@@ -151,6 +166,28 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
     rssMb = Math.round(rssSnap.rss / (1024 * 1024));
     systemMemoryPct = Math.round(rssSnap.usagePercent * 10) / 10;
   } catch {}
+
+  const totalReqs = lastMetricsData?.requestsTotal ?? Number(metrics.get("requests.total")?.value ?? 0);
+  const totalErrs = lastMetricsData?.requestsErrors ?? Number(metrics.get("requests.errors")?.value ?? 0);
+  const successRate = totalReqs > 0 ? Number((((totalReqs - totalErrs) / totalReqs) * 100).toFixed(1)) : 100;
+  const latencyAvgMs = lastMetricsData?.latencyAvgMs ?? (() => {
+    const hist = metrics.get("latency.request")?.value;
+    if (hist && typeof hist === "object" && (hist as any).count > 0) {
+      return Math.round((hist as any).sum / (hist as any).count);
+    }
+    return 0;
+  })();
+  const deltasCount = lastMetricsData?.deltasCount ?? Number(metrics.get("requests.delta")?.value ?? 0);
+  const fullReplaysCount = lastMetricsData?.fullReplaysCount ?? Number(metrics.get("requests.full")?.value ?? 0);
+  const totalModes = deltasCount + fullReplaysCount;
+  const deltaRatio = totalModes > 0 ? Number(((deltasCount / totalModes) * 100).toFixed(1)) : (deltasCount > 0 ? 100 : 0);
+  const toolCallsCount = lastMetricsData?.toolCallsCount ?? Number(metrics.get("toolcalls.total")?.value ?? 0);
+  const toolCallsRecovered = lastMetricsData?.toolCallsRecovered ?? Number(metrics.get("toolcalls.recovered")?.value ?? 0);
+  const captchasDetected = lastMetricsData?.captchasDetected ?? Number(metrics.get("captcha.challenges.detected")?.value ?? 0);
+  const captchasSolved = lastMetricsData?.captchasSolved ?? Number(metrics.get("captcha.solves.succeeded")?.value ?? 0);
+  const chatsCleaned = lastMetricsData?.chatsCleaned ?? Number(metrics.get("chats.cleaned")?.value ?? 0);
+  const cacheHitRatio = lastMetricsData?.cache?.hitRatio;
+  const cacheBytesSaved = lastMetricsData?.cache?.bytesSaved;
 
   return {
     online,
@@ -162,10 +199,25 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
     systemMemoryPct,
     activeStreams,
     waitingStreams,
+    metrics: {
+      requestsTotal: totalReqs,
+      requestsErrors: totalErrs,
+      successRate,
+      latencyAvgMs,
+      deltasCount,
+      fullReplaysCount,
+      deltaRatio,
+      toolCallsCount,
+      toolCallsRecovered,
+      captchasDetected,
+      captchasSolved,
+      chatsCleaned,
+      cacheHitRatio,
+      cacheBytesSaved,
+    },
     accounts,
   };
 }
-
 export function resetAllCooldowns(): number {
   return clearAllAccountCooldowns();
 }
