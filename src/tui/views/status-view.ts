@@ -8,6 +8,17 @@ import { theme, glyphs, drawBox, pad, truncate } from "../theme.ts";
 import { fetchProxyStatus, resetAllCooldowns, formatUptime } from "../proxy-client.ts";
 import { ServerManager } from "../server-manager.ts";
 
+export function renderProgressBar(
+  pct: number,
+  width = 8,
+  colorFn: (s: string) => string = theme.cyan,
+): string {
+  const safePct = Math.max(0, Math.min(100, isNaN(pct) ? 0 : pct));
+  const filled = Math.round((safePct / 100) * width);
+  const empty = Math.max(0, width - filled);
+  return colorFn("█".repeat(filled)) + theme.dim("░".repeat(empty));
+}
+
 export class StatusView implements TuiView {
   public readonly id = "status";
   public readonly title = "Status";
@@ -148,24 +159,39 @@ export class StatusView implements TuiView {
     const captchasDetected = m?.captchasDetected ?? 0;
     const captchasSolved = m?.captchasSolved ?? 0;
     const chatsCleaned = m?.chatsCleaned ?? 0;
+    const lbl = (s: string) => pad(s, 14);
+    const ramPct = data?.systemMemoryPct || 0;
+    const ramBarColor = ramPct >= 80 ? theme.red : ramPct >= 60 ? theme.yellow : theme.cyan;
+    const ramBar = renderProgressBar(ramPct, 7, ramBarColor);
+    const ramStr = `${data?.rssMb || 0} MB [${ramBar}] ${ramPct}%`;
+
+    let connsStr = "0 ativas";
+    if (data?.activeStreams && data.activeStreams > 0) {
+      connsStr = theme.yellow(`⚡ ${data.activeStreams} ativa(s)`);
+    } else {
+      connsStr = theme.dim("0 ativas");
+    }
+    if (data?.waitingStreams && data.waitingStreams > 0) {
+      connsStr += theme.peach(` (${data.waitingStreams} na fila)`);
+    }
 
     const leftContent: string[] = [
       "",
-      `  ${theme.bold("Status:")}     ${onlineBadge}`,
-      `  ${theme.bold("Base URL:")}   ${theme.cyan(baseUrl)}`,
-      `  ${theme.bold("Uptime:")}     ${theme.cyan(uptimeStr)}`,
-      `  ${theme.bold("Memória:")}    ${theme.cyan(String(data?.rssMb || 0) + " MB")} ${theme.dim(`(RAM ${data?.systemMemoryPct || 0}%)`)}`,
-      `  ${theme.bold("Conexões:")}   ${data?.activeStreams ? theme.yellow(String(data.activeStreams) + " ativas") : "0 ativas"}${data?.waitingStreams ? theme.peach(` (${data.waitingStreams} fila)`) : ""}`,
+      `  ${theme.bold(lbl("Status:"))} ${onlineBadge}`,
+      `  ${theme.bold(lbl("Base URL:"))} ${theme.cyan(baseUrl)}`,
+      `  ${theme.bold(lbl("Uptime:"))} ${theme.cyan(uptimeStr)}`,
+      `  ${theme.bold(lbl("Memória:"))} ${theme.cyan(ramStr)}`,
+      `  ${theme.bold(lbl("Conexões:"))} ${connsStr}`,
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Tráfego & Performance:")}`,
-      `    ${theme.dim("Requisições:")} ${theme.cyan(String(reqsTotal))} ${theme.green(`(${successPct}% ok)`)} · ${reqsErrors > 0 ? theme.red(`${reqsErrors} err`) : theme.dim("0 err")}`,
-      `    ${theme.dim("Latência:")}    ${theme.yellow(latencyAvg)} méd`,
-      `    ${theme.dim("Deltas:")}      ${theme.green(deltaRatio)} ${theme.dim(`(${deltasCount} delta / ${fullCount} full)`)}`,
+      `    ${theme.dim(lbl("Requisições:"))} ${theme.cyan(String(reqsTotal))} ${theme.green(`(${successPct}% ok)`)} · ${reqsErrors > 0 ? theme.red(`${reqsErrors} err`) : theme.dim("0 err")}`,
+      `    ${theme.dim(lbl("Latência:"))} ${theme.yellow(latencyAvg)} méd`,
+      `    ${theme.dim(lbl("Deltas:"))} ${theme.green(deltaRatio)} ${theme.dim(`(${deltasCount} delta / ${fullCount} full)`)}`,
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Agentes & Operações:")}`,
-      `    ${theme.dim("Tool Calls:")}  ${theme.cyan(String(toolCalls))} ${toolRecovered > 0 ? theme.green(`(${toolRecovered} curadas)`) : ""}`,
-      `    ${theme.dim("Captchas:")}    ${captchasSolved > 0 ? theme.green(`${captchasSolved}/${captchasDetected} resolvidos`) : theme.dim(`${captchasDetected} detectados`)}`,
-      `    ${theme.dim("Chats Limpos:")} ${theme.cyan(String(chatsCleaned))} ${theme.dim("excluídos (>24h)")}`,
+      `    ${theme.dim(lbl("Tool Calls:"))} ${theme.cyan(String(toolCalls))} ${toolRecovered > 0 ? theme.green(`(${toolRecovered} curadas)`) : ""}`,
+      `    ${theme.dim(lbl("Captchas:"))} ${captchasSolved > 0 ? theme.green(`${captchasSolved}/${captchasDetected} resolvidos`) : theme.dim(`${captchasDetected} detectados`)}`,
+      `    ${theme.dim(lbl("Chats Limpos:"))} ${theme.cyan(String(chatsCleaned))} ${theme.dim("excluídos (>24h)")}`,
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Ações:")}`,
     ];
@@ -184,10 +210,12 @@ export class StatusView implements TuiView {
       leftContent.push(`  ${this.actionMessage}`);
     }
 
+    const boxHeight = Math.max(contentH, leftContent.length + 2);
+
     const leftBox = drawBox({
       title: "Sistema & Performance",
       width: leftW,
-      height: Math.max(contentH, leftContent.length + 2),
+      height: boxHeight,
       borderColor: theme.borderInactive,
       titleColor: theme.cyan,
       content: leftContent,
@@ -198,27 +226,32 @@ export class StatusView implements TuiView {
     const readyCount = accounts.filter((a) => !a.onCooldown && a.headersReady).length;
     const poolPct = accounts.length > 0 ? Math.round((readyCount / accounts.length) * 100) : 0;
     const poolColor = poolPct >= 70 ? theme.green : poolPct >= 40 ? theme.yellow : theme.red;
-
+    const poolBar = renderProgressBar(poolPct, 8, poolColor);
+    const innerRightW = Math.max(30, rightW - 2);
+    const emailWidth = Math.max(16, innerRightW - 27);
     const rightContent: string[] = [
       "",
-      `  ${theme.bold("Disponibilidade:")} ${poolColor(`${readyCount}/${accounts.length} (${poolPct}%)`)}`,
-      `  ${theme.dim("───────────────────────────────────────")}`,
-      `  ${theme.dim("#   Conta                 Carga  Status")}`,
-      `  ${theme.dim("───────────────────────────────────────")}`,
+      `  ${theme.bold("Disponibilidade:")} [${poolBar}] ${poolColor(`${readyCount}/${accounts.length} (${poolPct}%)`)}`,
+      `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
+      `  ${theme.dim(`#   ${pad("Conta", emailWidth)} Carga  Status`)}`,
+      `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
     ];
 
     if (accounts.length === 0) {
       rightContent.push(`  ${theme.muted("Nenhuma conta adicionada. (Vá em [5] Contas)")}`);
     } else {
-      accounts.slice(0, contentH - 6).forEach((acc, idx) => {
+      const maxVisibleAccounts = Math.max(6, boxHeight - 9);
+      accounts.slice(0, maxVisibleAccounts).forEach((acc, idx) => {
         const num = pad(String(idx + 1) + ".", 4);
-        const name = pad(truncate(acc.emailOrName, 18), 19);
+        const name = pad(truncate(acc.emailOrName, emailWidth - 1), emailWidth);
         const active = acc.activeStreams || 0;
         const limit = acc.streamLimit || 1;
         const loadBadge = active > 0 ? theme.yellow(`[${active}/${limit}]`) : theme.dim(`[0/${limit}]`);
 
         let status = theme.green(`${glyphs.bullet} Pronto`);
-        if (acc.onCooldown) {
+        if (active > 0 && !acc.onCooldown && acc.headersReady) {
+          status = theme.yellow(`● Gerando `);
+        } else if (acc.onCooldown) {
           const reason = acc.cooldownReason || "";
           if (
             reason.startsWith("AuthFailed") ||
@@ -239,12 +272,22 @@ export class StatusView implements TuiView {
         }
         rightContent.push(`  ${num}${name} ${loadBadge} ${status}`);
       });
+
+      // Pool quick summary in the footer of the right box
+      rightContent.push(`  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`);
+      const standbyCount = accounts.filter((a) => !a.onCooldown && !a.headersReady).length;
+      const cooldownCount = accounts.filter((a) => a.onCooldown).length;
+      const summaryParts: string[] = [];
+      if (readyCount > 0) summaryParts.push(`${readyCount} pronta(s)`);
+      if (standbyCount > 0) summaryParts.push(`${standbyCount} standby`);
+      if (cooldownCount > 0) summaryParts.push(`${cooldownCount} cd`);
+      rightContent.push(theme.muted(`  💡 ${summaryParts.join(" · ")} · Vá em [5] Contas`));
     }
 
     const rightBox = drawBox({
       title: `Contas Pool (${readyCount}/${accounts.length})`,
       width: rightW,
-      height: Math.max(contentH, leftContent.length + 2),
+      height: boxHeight,
       borderColor: theme.borderInactive,
       titleColor: theme.lavender,
       content: rightContent,
