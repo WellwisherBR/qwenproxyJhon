@@ -379,6 +379,7 @@ test("Chat Completions returns explicit error for non-SSE upstream JSON errors",
       "RateLimited",
     );
   } finally {
+    clearAccountCooldown("mock-account");
     clearAllAccountCooldowns();
     globalThis.fetch = originalFetch;
     await Promise.resolve();
@@ -433,6 +434,7 @@ test("Chat Completions returns explicit error for stream=true upstream JSON erro
       "RateLimited",
     );
   } finally {
+    clearAccountCooldown("mock-account");
     clearAllAccountCooldowns();
     globalThis.fetch = originalFetch;
     await Promise.resolve();
