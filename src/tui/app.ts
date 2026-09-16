@@ -26,6 +26,7 @@ import { SyncView } from "./views/sync-view.ts";
 import { StorageView } from "./views/storage-view.ts";
 import { AccountsView } from "./views/accounts-view.ts";
 import { LogsView } from "./views/logs-view.ts";
+import { loadTuiSettings, saveTuiSettings } from "./settings.ts";
 export class TuiApp {
   private screen: Screen;
   private views: TuiView[] = [];
@@ -36,7 +37,7 @@ export class TuiApp {
   private pollInterval: NodeJS.Timeout | null = null;
   private statusSnapshot: ProxyStatusSnapshot | null = null;
   private renderScheduled = false;
-  constructor(initialTab = 1) {
+  constructor(initialTab?: number) {
     this.screen = new Screen();
 
     this.views = [
@@ -47,8 +48,31 @@ export class TuiApp {
       new AccountsView(),
       new LogsView(),
     ];
-    const tabIdx = Math.max(0, Math.min(this.views.length - 1, initialTab - 1));
+
+    let resolvedTab = initialTab;
+    if (!resolvedTab || isNaN(resolvedTab)) {
+      const saved = loadTuiSettings();
+      if (saved.lastTab && saved.lastTab >= 1 && saved.lastTab <= 6) {
+        resolvedTab = saved.lastTab;
+      } else {
+        resolvedTab = 1;
+      }
+    }
+
+    const tabIdx = Math.max(0, Math.min(this.views.length - 1, resolvedTab - 1));
     this.activeViewIndex = tabIdx;
+  }
+
+  private switchTab(newIdx: number): void {
+    if (newIdx === this.activeViewIndex || !this.views[newIdx]) return;
+    const activeView = this.views[this.activeViewIndex];
+    if (activeView.onDeactivate) activeView.onDeactivate();
+    this.activeViewIndex = newIdx;
+    this.hoveredTabIndex = null;
+    const nextView = this.views[this.activeViewIndex];
+    if (nextView.onActivate) nextView.onActivate();
+    saveTuiSettings({ lastTab: newIdx + 1 });
+    this.requestRender();
   }
 
   private getTabAtCol(col: number): number | null {
@@ -149,12 +173,7 @@ export class TuiApp {
       }
       if (key.name === "click") {
         if (tabIdx !== null && tabIdx !== this.activeViewIndex && this.views[tabIdx]) {
-          if (activeView.onDeactivate) activeView.onDeactivate();
-          this.activeViewIndex = tabIdx;
-          this.hoveredTabIndex = null;
-          const nextView = this.views[this.activeViewIndex];
-          if (nextView.onActivate) nextView.onActivate();
-          this.requestRender();
+          this.switchTab(tabIdx);
           return;
         }
       }
@@ -189,12 +208,7 @@ export class TuiApp {
     // Tab for cycling tabs across views (including from Chat view when no modal is open!)
     if (key.name === "tab" && !isModalOpen) {
       const newIdx = (this.activeViewIndex + 1) % this.views.length;
-      if (activeView.onDeactivate) activeView.onDeactivate();
-      this.activeViewIndex = newIdx;
-      this.hoveredTabIndex = null;
-      const nextView = this.views[this.activeViewIndex];
-      if (nextView.onActivate) nextView.onActivate();
-      this.requestRender();
+      this.switchTab(newIdx);
       return;
     }
     // Direct tab switching with numbers 1..6 only when NOT typing text in an input
@@ -207,12 +221,7 @@ export class TuiApp {
       if (!key.ctrl && !key.meta && ["1", "2", "3", "4", "5", "6"].includes(key.name)) {
         const newIdx = parseInt(key.name, 10) - 1;
         if (newIdx !== this.activeViewIndex && this.views[newIdx]) {
-          if (activeView.onDeactivate) activeView.onDeactivate();
-          this.activeViewIndex = newIdx;
-          this.hoveredTabIndex = null;
-          const nextView = this.views[this.activeViewIndex];
-          if (nextView.onActivate) nextView.onActivate();
-          this.requestRender();
+          this.switchTab(newIdx);
           return;
         }
       }

@@ -7,6 +7,7 @@ import type { TuiView } from "../types.ts";
 import type { KeyEvent } from "../screen.ts";
 import { theme, drawBox, stringWidth, truncate, pad, stripAnsi, setClipboardText } from "../theme.ts";
 import { ServerManager } from "../server-manager.ts";
+import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
 
 export class LogsView implements TuiView {
   public readonly id = "logs";
@@ -14,6 +15,21 @@ export class LogsView implements TuiView {
   public readonly tabNumber = 6;
 
   private filter: "all" | "warn" | "error" = "all";
+
+  constructor() {
+    const saved = loadTuiSettings();
+    if (saved.logs?.filter && ["all", "warn", "error"].includes(saved.logs.filter)) {
+      this.filter = saved.logs.filter;
+    }
+  }
+
+  private setFilter(newFilter: "all" | "warn" | "error"): void {
+    this.filter = newFilter;
+    this.scrollOffset = 0;
+    this.selectedLogIndex = null;
+    saveTuiSettings({ logs: { filter: newFilter } });
+  }
+
   private scrollOffset = 0; // 0 = at the bottom (follow newest)
   private hoveredChip: "all" | "warn" | "error" | "copy" | "clear" | null = null;
   private selectedLogIndex: number | null = null;
@@ -103,21 +119,15 @@ export class LogsView implements TuiView {
       for (const c of chips) {
         if (col >= c.startCol && col <= c.endCol) {
           if (c.id === "all") {
-            this.filter = "all";
-            this.scrollOffset = 0;
-            this.selectedLogIndex = null;
+            this.setFilter("all");
             return true;
           }
           if (c.id === "warn") {
-            this.filter = "warn";
-            this.scrollOffset = 0;
-            this.selectedLogIndex = null;
+            this.setFilter("warn");
             return true;
           }
           if (c.id === "error") {
-            this.filter = "error";
-            this.scrollOffset = 0;
-            this.selectedLogIndex = null;
+            this.setFilter("error");
             return true;
           }
           if (c.id === "copy") {
@@ -202,21 +212,15 @@ export class LogsView implements TuiView {
 
     // Filter toggles
     if ((key.name === "t" || key.name === "T") && !key.ctrl) {
-      this.filter = "all";
-      this.scrollOffset = 0;
-      this.selectedLogIndex = null;
+      this.setFilter("all");
       return true;
     }
     if ((key.name === "w" || key.name === "W") && !key.ctrl) {
-      this.filter = "warn";
-      this.scrollOffset = 0;
-      this.selectedLogIndex = null;
+      this.setFilter("warn");
       return true;
     }
     if ((key.name === "e" || key.name === "E") && !key.ctrl) {
-      this.filter = "error";
-      this.scrollOffset = 0;
-      this.selectedLogIndex = null;
+      this.setFilter("error");
       return true;
     }
 

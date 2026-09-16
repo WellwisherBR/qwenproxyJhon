@@ -171,6 +171,13 @@ export function getSyncStatePath(customDataDir?: string): string {
 }
 
 /**
+ * Path to TUI user preferences file (model, effort, last tab, etc.).
+ */
+export function getTuiSettingsPath(customDataDir?: string): string {
+  return path.join(customDataDir || getDataDir(), "tui-settings.json");
+}
+
+/**
  * Path to user configuration .env file (either local or in global data dir).
  */
 export function getEnvFilePath(customDataDir?: string): string {

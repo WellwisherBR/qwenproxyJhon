@@ -8,6 +8,7 @@ import { theme, glyphs, drawBox, stringWidth, truncate, stripAnsi, pad, wrapCont
 import { streamChatCompletions, fetchLiveModels } from "../proxy-client.ts";
 import { ServerManager } from "../server-manager.ts";
 import { formatMarkdown, formatReasoning } from "../markdown.ts";
+import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -122,6 +123,21 @@ export class ChatView implements TuiView {
 
   constructor(onNeedsRender?: () => void) {
     this.onNeedsRender = onNeedsRender;
+    const saved = loadTuiSettings();
+    if (saved.chat?.model) {
+      const idx = this.availableModels.indexOf(saved.chat.model);
+      if (idx !== -1) {
+        this.selectedModelIndex = idx;
+      }
+    }
+    const savedEffort = saved.chat?.effort;
+    if (savedEffort && ["high", "medium", "low"].includes(savedEffort)) {
+      this.selectedEffort = savedEffort;
+      const effIdx = this.availableEfforts.findIndex((e) => e.id === savedEffort);
+      if (effIdx !== -1) {
+        this.effortSelectedIndex = effIdx;
+      }
+    }
     void this.refreshModels();
   }
   public onActivate(): void {
@@ -138,7 +154,13 @@ export class ChatView implements TuiView {
       if (live.length > 0) {
         const current = this.availableModels[this.selectedModelIndex];
         this.availableModels = live;
-        const foundIdx = this.availableModels.indexOf(current);
+        let foundIdx = this.availableModels.indexOf(current);
+        if (foundIdx === -1) {
+          const saved = loadTuiSettings();
+          if (saved.chat?.model) {
+            foundIdx = this.availableModels.indexOf(saved.chat.model);
+          }
+        }
         this.selectedModelIndex = foundIdx !== -1 ? foundIdx : 0;
         this.onNeedsRender?.();
       }
@@ -169,7 +191,12 @@ export class ChatView implements TuiView {
     if (!chosen) return;
     this.selectedModelIndex = idx;
     this.isModelModalOpen = false;
-
+    saveTuiSettings({
+      chat: {
+        model: chosen,
+        effort: this.selectedEffort,
+      },
+    });
     const info = classifyModel(chosen);
     if (info.category === "Texto & Raciocínio") {
       this.isEffortModalOpen = true;
@@ -249,6 +276,12 @@ export class ChatView implements TuiView {
           this.selectedEffort = this.availableEfforts[row - 9].id;
           this.isEffortModalOpen = false;
           const currentM = this.availableModels[this.selectedModelIndex];
+          saveTuiSettings({
+            chat: {
+              model: currentM,
+              effort: this.selectedEffort,
+            },
+          });
           this.statusNote = `Modelo: ${currentM} | Effort: ${this.availableEfforts[row - 9].label}`;
           this.onNeedsRender?.();
           return true;
@@ -274,6 +307,12 @@ export class ChatView implements TuiView {
         this.selectedEffort = this.availableEfforts[this.effortSelectedIndex].id;
         this.isEffortModalOpen = false;
         const currentM = this.availableModels[this.selectedModelIndex];
+        saveTuiSettings({
+          chat: {
+            model: currentM,
+            effort: this.selectedEffort,
+          },
+        });
         this.statusNote = `Modelo: ${currentM} | Effort: ${this.availableEfforts[this.effortSelectedIndex].label}`;
         this.onNeedsRender?.();
         return true;

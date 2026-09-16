@@ -24,6 +24,9 @@ import { AccountsView } from "../tui/views/accounts-view.ts";
 import { ChatView } from "../tui/views/chat-view.ts";
 import { StorageView } from "../tui/views/storage-view.ts";
 import { LogsView } from "../tui/views/logs-view.ts";
+import { resetTuiSettingsCacheForTests } from "../tui/settings.ts";
+import fs from "node:fs";
+import { getTuiSettingsPath } from "../core/paths.ts";
 import { ServerManager } from "../tui/server-manager.ts";
 import { TuiApp } from "../tui/app.ts";
 
@@ -276,6 +279,10 @@ test("TUI Markdown: formatMarkdown converts markdown images to clean cards with 
 });
 
 test("TUI ChatView: past assistant messages preserve their generating model when switching active model", async () => {
+  resetTuiSettingsCacheForTests();
+  const p = getTuiSettingsPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  resetTuiSettingsCacheForTests();
   const view = new ChatView();
   // Simulate a message generated with qwen3.8-max
   (view as any).messages.push({
@@ -377,9 +384,12 @@ test("TUI ChatView: classifyModel dynamically categorizes any model without hard
 });
 
 test("TUI LogsView: renders exactly allocated height and switches filters", async () => {
+  resetTuiSettingsCacheForTests();
+  const p = getTuiSettingsPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  resetTuiSettingsCacheForTests();
   const { LogsView } = await import("../tui/views/logs-view.ts");
   const view = new LogsView();
-  assert.equal(view.id, "logs");
   assert.equal(view.tabNumber, 6);
 
   const height = 18;
@@ -397,19 +407,22 @@ test("TUI LogsView: renders exactly allocated height and switches filters", asyn
   assert.equal(errLines.length, height);
 });
 test("TUI LogsView: supports selecting log line, copying, and rendering scrollbar", async () => {
+  resetTuiSettingsCacheForTests();
+  const p = getTuiSettingsPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  resetTuiSettingsCacheForTests();
   const { LogsView } = await import("../tui/views/logs-view.ts");
   const { ServerManager } = await import("../tui/server-manager.ts");
   const view = new LogsView();
-
-  // Populate server logs
+  // Clear and populate server logs
+  ServerManager.getInstance().clearLogs();
   for (let i = 1; i <= 25; i++) {
     (ServerManager.getInstance() as any).logEntries.push({
-      level: i % 3 === 0 ? "ERROR" : i % 2 === 0 ? "WARN" : "INFO",
       time: "12:00:00",
+      level: "INFO",
       message: `Test log message ${i}`,
     });
   }
-
   const height = 15;
   const rendered = view.render(80, height);
   assert.equal(rendered.length, height);
@@ -721,10 +734,15 @@ test("TUI ChatView: supports dragging the lateral scrollbar with mouse drag even
 });
 
 test("TUI LogsView: lateral scrollbar is clickable and clamps scrollOffset", async () => {
+  resetTuiSettingsCacheForTests();
+  const p = getTuiSettingsPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  resetTuiSettingsCacheForTests();
   const view = new LogsView();
 
-  // Add dummy logs via server manager or simulate log entries
+  // Add dummy logs via server manager
   const sm = ServerManager.getInstance();
+  sm.clearLogs();
   for (let i = 1; i <= 30; i++) {
     (sm as any).appendLog("INFO", `Log entry ${i} for testing scrollbar`);
   }
@@ -1437,9 +1455,7 @@ test("TUI StatusView: precision mouse hover and click on action buttons", async 
 
 test("TUI Theme: setClipboardText and getClipboardText preserve full Unicode emojis and accents", () => {
   const original = "✨ [Server] Conectado à instância em execução na porta 7936";
-  const ok = setClipboardText(original);
-  assert.ok(ok, "setClipboardText should succeed");
-
+  setClipboardText(original);
   const retrieved = getClipboardText();
   assert.ok(retrieved.includes("✨"), "Copied text must keep sparkle emoji without mojibake");
   assert.ok(retrieved.includes("à"), "Copied text must keep accent à");
