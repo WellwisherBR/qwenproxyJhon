@@ -393,11 +393,42 @@ test("inspectClientSyncStatus correctly determines installed and synced states",
   assert.equal(syncedStatus.model, "qwen3.8-max");
 
   // Codex synced
-  fs.writeFileSync(codexPath, `model = "qwen3.8-max"\nmodel_provider = "qwenproxy"\n\n[model_providers.qwenproxy]\n`, "utf-8");
+  fs.writeFileSync(codexPath, `model = "qwen3.8-max"\nmodel_provider = "qwenproxy"\n\n[model_providers.qwenproxy]\nbase_url = "http://127.0.0.1:7936/v1"\n`, "utf-8");
   const codexSynced = inspectClientSyncStatus("codex", codexPath);
   assert.equal(codexSynced.installed, true);
   assert.equal(codexSynced.synced, true);
   assert.equal(codexSynced.model, "qwen3.8-max");
 
+  // Codex pointing to another external URL must NOT be considered synced
+  fs.writeFileSync(codexPath, `model = "qwen3.8-max"\nmodel_provider = "qwenproxy"\n\n[model_providers.qwenproxy]\nbase_url = "https://ai.external.net/v1"\n`, "utf-8");
+  const codexOtherUrl = inspectClientSyncStatus("codex", codexPath);
+  assert.equal(codexOtherUrl.installed, true);
+  assert.equal(codexOtherUrl.synced, false);
+
+  // OMP pointing to local port 7936
+  const ompPath = path.join(tmp, "models.yml");
+  fs.writeFileSync(ompPath, `providers:\n  qwenproxy:\n    baseUrl: http://127.0.0.1:7936/v1\n`, "utf-8");
+  const ompSynced = inspectClientSyncStatus("omp", ompPath);
+  assert.equal(ompSynced.installed, true);
+  assert.equal(ompSynced.synced, true);
+
+  // OMP pointing to external domain (e.g. traday.net) must NOT be considered synced
+  fs.writeFileSync(ompPath, `providers:\n  qwenproxy:\n    baseUrl: https://ai.traday.net/v1\n`, "utf-8");
+  const ompExternal = inspectClientSyncStatus("omp", ompPath);
+  assert.equal(ompExternal.installed, true);
+  assert.equal(ompExternal.synced, false);
+
+  // OpenCode pointing to local port 7936
+  const opencodePath = path.join(tmp, "opencode.jsonc");
+  fs.writeFileSync(opencodePath, JSON.stringify({ provider: { qwenproxy: { options: { baseURL: "http://127.0.0.1:7936/v1" } } } }), "utf-8");
+  const opencodeSynced = inspectClientSyncStatus("opencode", opencodePath);
+  assert.equal(opencodeSynced.installed, true);
+  assert.equal(opencodeSynced.synced, true);
+
+  // OpenCode pointing to external provider
+  fs.writeFileSync(opencodePath, JSON.stringify({ provider: { qwenproxy: { options: { baseURL: "https://remote.example.com/v1" } } } }), "utf-8");
+  const opencodeExternal = inspectClientSyncStatus("opencode", opencodePath);
+  assert.equal(opencodeExternal.installed, true);
+  assert.equal(opencodeExternal.synced, false);
   fs.rmSync(tmp, { recursive: true, force: true });
 });

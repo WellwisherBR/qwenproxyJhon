@@ -115,8 +115,12 @@ export function inspectClientSyncStatus(
       const data = JSON.parse(raw);
       const url = data?.env?.ANTHROPIC_BASE_URL || "";
       const model = data?.env?.ANTHROPIC_MODEL || data?.model || "";
+      const isLocalHost =
+        url.includes(String(port)) ||
+        url.includes(`127.0.0.1:${port}`) ||
+        url.includes(`localhost:${port}`);
       const isSynced =
-        (url.includes(String(port)) || url.includes("qwenproxy")) &&
+        isLocalHost &&
         (model.toLowerCase().includes("qwen") || Boolean(data?.env?.ANTHROPIC_AUTH_TOKEN));
       return {
         id,
@@ -132,34 +136,66 @@ export function inspectClientSyncStatus(
       const isProviderActive = /^model_provider\s*=\s*["']qwenproxy["']/m.test(raw);
       const modelMatch = raw.match(/^model\s*=\s*["']([^"']+)["']/m);
       const model = modelMatch ? modelMatch[1] : undefined;
+      const urlMatch = raw.match(/\[model_providers\.qwenproxy\][\s\S]*?base_url\s*=\s*["']([^"']+)["']/);
+      const url = urlMatch ? urlMatch[1] : "";
+      const isLocalHost = Boolean(
+        url && (url.includes(String(port)) || url.includes(`127.0.0.1:${port}`) || url.includes(`localhost:${port}`)),
+      );
       return {
         id,
         installed: true,
-        synced: hasProvider && isProviderActive,
+        synced: hasProvider && isProviderActive && isLocalHost,
         model,
       };
     }
 
     if (id === "opencode") {
-      const hasQwen =
-        raw.includes('"qwenproxy"') &&
-        (raw.includes(String(port)) || raw.includes("QwenProxy") || raw.includes("qwen3"));
+      let isSynced = false;
+      try {
+        const data = JSON.parse(raw);
+        const provider = data?.provider?.qwenproxy;
+        const url = provider?.options?.baseURL || "";
+        const isLocalHost =
+          url.includes(String(port)) ||
+          url.includes(`127.0.0.1:${port}`) ||
+          url.includes(`localhost:${port}`);
+        isSynced = Boolean(provider && isLocalHost);
+      } catch {
+        const qwenBlockMatch = raw.match(/"qwenproxy"\s*:\s*\{[\s\S]*?"baseURL"\s*:\s*"([^"]+)"/);
+        const url = qwenBlockMatch ? qwenBlockMatch[1] : "";
+        isSynced = Boolean(
+          url &&
+            (url.includes(String(port)) ||
+              url.includes(`127.0.0.1:${port}`) ||
+              url.includes(`localhost:${port}`)),
+        );
+      }
       return {
         id,
         installed: true,
-        synced: hasQwen,
+        synced: isSynced,
       };
     }
 
     if (id === "omp") {
-      const hasQwen =
-        /^ {2}qwenproxy:\s*$/m.test(raw) ||
-        raw.includes("qwenproxy:") ||
-        (raw.includes(String(port)) && raw.includes("qwen3"));
+      const ompMatch = raw.match(/^[ \t]*qwenproxy:\s*\r?\n((?:[ \t]{4,}.*\r?\n?)*)/m);
+      let isSynced = false;
+      let url: string | undefined;
+      if (ompMatch) {
+        const urlMatch = ompMatch[1].match(/baseUrl:\s*(\S+)/);
+        url = urlMatch ? urlMatch[1].replace(/['"]/g, "") : undefined;
+        isSynced = Boolean(
+          url &&
+            (url.includes(String(port)) ||
+              url.includes(`127.0.0.1:${port}`) ||
+              url.includes(`localhost:${port}`)),
+        );
+      }
       return {
         id,
         installed: true,
-        synced: hasQwen,
+        synced: isSynced,
+        url,
       };
     }
   } catch {
