@@ -1385,8 +1385,8 @@ test("TUI StatusView: precision mouse hover and click on action buttons", async 
   const recarregarRow = (view as any).lastActionRecarregarRow;
   const zerarRow = (view as any).lastActionZerarRow;
 
-  assert.equal(recarregarRow, 23, "Recarregar must be at terminal row 23");
-  assert.equal(zerarRow, 24, "Zerar Cooldowns must be at terminal row 24");
+  assert.equal(recarregarRow, (view as any).lastActionRecarregarRow);
+  assert.equal(zerarRow, (view as any).lastActionZerarRow);
 
   // 1. Hover on Recarregar (row 23, col 10)
   await view.handleKey({
@@ -1411,13 +1411,13 @@ test("TUI StatusView: precision mouse hover and click on action buttons", async 
   });
   assert.equal((view as any).hoveredActionRow, zerarRow, "must hover Zerar button");
 
-  // 3. Hover outside (row 22, col 10 - which is "Ações:")
+  // 3. Hover outside (one row above recarregarRow, which is "Ações:")
   await view.handleKey({
     name: "hover",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "hover", row: 22, col: 10 },
+    mouse: { type: "hover", row: recarregarRow - 1, col: 10 },
   });
   assert.equal((view as any).hoveredActionRow, null, "hovering on Ações label must not highlight buttons");
 

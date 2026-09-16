@@ -131,12 +131,21 @@ app.use("*", async (c, next) => {
     String(Math.max(0, ratelimit.tokens - 1)),
   );
   c.header("x-ratelimit-reset-tokens", "0");
+  const isProbe =
+    c.req.path === "/health" ||
+    c.req.path === "/metrics" ||
+    c.req.path.startsWith("/diagnostics") ||
+    c.req.path === "/favicon.ico";
 
-  metrics.increment("requests.total");
+  if (!isProbe) {
+    metrics.increment("requests.total");
+  }
   const start = Date.now();
   await next();
   const duration = Date.now() - start;
-  metrics.histogram("latency.request", duration);
+  if (!isProbe) {
+    metrics.histogram("latency.request", duration);
+  }
   c.header("X-Response-Time", `${duration}ms`);
   c.header("openai-processing-ms", String(duration));
 });
@@ -323,7 +332,14 @@ app.get("/metrics", (c) => {
 
 app.onError((err, c) => {
   const requestId = c.req.header("X-Request-Id") || "unknown";
-  metrics.increment("requests.errors");
+  const isProbe =
+    c.req.path === "/health" ||
+    c.req.path === "/metrics" ||
+    c.req.path.startsWith("/diagnostics") ||
+    c.req.path === "/favicon.ico";
+  if (!isProbe) {
+    metrics.increment("requests.errors");
+  }
   logger.error("API Error", {
     requestId,
     error: err instanceof Error ? err.message : String(err),

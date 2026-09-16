@@ -125,11 +125,13 @@ export class StatusView implements TuiView {
     const isOnline = data?.online ?? false;
     const contentH = Math.max(10, height);
 
-    // Two-column layout: left column needs at most 43 cols, giving maximum breathing room to accounts table
-    const leftW = Math.min(43, Math.max(38, Math.floor(width * 0.46)));
+    // Two-column layout: give left box 48-52 cols so rich metrics never truncate,
+    // and right box takes the remaining width (at least 38 cols).
+    const leftW = width >= 96
+      ? Math.min(52, Math.max(48, Math.floor(width * 0.48)))
+      : Math.min(46, Math.max(38, Math.floor(width * 0.50)));
     this.lastLeftW = leftW;
-    const rightW = Math.max(34, width - leftW - 1);
-    // Left Column: System & Proxy Status
+    const rightW = Math.max(36, width - leftW - 1);
     const serverState = ServerManager.getInstance().getState();
     let onlineBadge: string;
     if (isOnline || serverState === "online") {
@@ -151,15 +153,19 @@ export class StatusView implements TuiView {
     const reqsErrors = m?.requestsErrors ?? 0;
     const successPct = m?.successRate ?? (reqsTotal > 0 ? Number((((reqsTotal - reqsErrors) / reqsTotal) * 100).toFixed(1)) : 100);
     const latencyAvg = m?.latencyAvgMs ? `${m.latencyAvgMs}ms` : "–";
-    const deltaRatio = m?.deltaRatio != null ? `${m.deltaRatio}%` : "–";
     const deltasCount = m?.deltasCount ?? 0;
     const fullCount = m?.fullReplaysCount ?? 0;
+    const deltaRatio = m?.deltaRatio != null ? `${m.deltaRatio}%` : "–";
     const toolCalls = m?.toolCallsCount ?? 0;
     const toolRecovered = m?.toolCallsRecovered ?? 0;
     const captchasDetected = m?.captchasDetected ?? 0;
     const captchasSolved = m?.captchasSolved ?? 0;
     const chatsCleaned = m?.chatsCleaned ?? 0;
-    const lbl = (s: string) => pad(s, 14);
+    const lbl = (s: string) => pad(s, 13);
+    const innerLeftW = Math.max(30, leftW - 2);
+    const deltaDetail = innerLeftW < 44
+      ? `(${deltasCount}d / ${fullCount}f)`
+      : `(${deltasCount} delta / ${fullCount} full)`;
     const ramPct = data?.systemMemoryPct || 0;
     const ramBarColor = ramPct >= 80 ? theme.red : ramPct >= 60 ? theme.yellow : theme.cyan;
     const ramBar = renderProgressBar(ramPct, 7, ramBarColor);
@@ -176,7 +182,6 @@ export class StatusView implements TuiView {
     }
 
     const leftContent: string[] = [
-      "",
       `  ${theme.bold(lbl("Status:"))} ${onlineBadge}`,
       `  ${theme.bold(lbl("Base URL:"))} ${theme.cyan(baseUrl)}`,
       `  ${theme.bold(lbl("Uptime:"))} ${theme.cyan(uptimeStr)}`,
@@ -186,7 +191,7 @@ export class StatusView implements TuiView {
       `  ${theme.bold("Tráfego & Performance:")}`,
       `    ${theme.dim(lbl("Requisições:"))} ${theme.cyan(String(reqsTotal))} ${theme.green(`(${successPct}% ok)`)} · ${reqsErrors > 0 ? theme.red(`${reqsErrors} err`) : theme.dim("0 err")}`,
       `    ${theme.dim(lbl("Latência:"))} ${theme.yellow(latencyAvg)} méd`,
-      `    ${theme.dim(lbl("Deltas:"))} ${theme.green(deltaRatio)} ${theme.dim(`(${deltasCount} delta / ${fullCount} full)`)}`,
+      `    ${theme.dim(lbl("Deltas:"))} ${theme.green(deltaRatio)} ${theme.dim(deltaDetail)}`,
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Agentes & Operações:")}`,
       `    ${theme.dim(lbl("Tool Calls:"))} ${theme.cyan(String(toolCalls))} ${toolRecovered > 0 ? theme.green(`(${toolRecovered} curadas)`) : ""}`,
@@ -195,6 +200,7 @@ export class StatusView implements TuiView {
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Ações:")}`,
     ];
+
     const recarregarIdx = leftContent.length;
     const zerarIdx = leftContent.length + 1;
     this.lastActionRecarregarRow = 5 + recarregarIdx;
@@ -223,14 +229,12 @@ export class StatusView implements TuiView {
     const readyCount = accounts.filter((a) => !a.onCooldown && a.headersReady).length;
     const standbyCount = accounts.filter((a) => !a.onCooldown && !a.headersReady).length;
     const cooldownCount = accounts.filter((a) => a.onCooldown).length;
-
     const poolPct = accounts.length > 0 ? Math.round((availableCount / accounts.length) * 100) : 0;
     const poolColor = poolPct >= 70 ? theme.green : poolPct >= 40 ? theme.yellow : theme.red;
     const poolBar = renderProgressBar(poolPct, 8, poolColor);
     const innerRightW = Math.max(30, rightW - 2);
-    const emailWidth = Math.max(16, Math.min(22, innerRightW - 25));
+    const emailWidth = Math.max(16, Math.min(20, innerRightW - 27));
     const rightContent: string[] = [
-      "",
       `  ${theme.bold("Disponibilidade:")} [${poolBar}] ${poolColor(`${availableCount}/${accounts.length} (${poolPct}%)`)}`,
       `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
       `  ${theme.dim(`#   ${pad("Conta", emailWidth)} Carga  Status`)}`,
