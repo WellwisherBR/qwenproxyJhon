@@ -1377,3 +1377,58 @@ test("TUI StatusView: renders rich traffic, latency, delta, tool call and cleanu
   assert.ok(fullText.includes("450"), "Must render toolCallsCount");
   assert.ok(fullText.includes("40"), "Must render chatsCleaned");
 });
+
+test("TUI StatusView: precision mouse hover and click on action buttons", async () => {
+  const view = new StatusView();
+  view.render(80, 24);
+
+  const recarregarRow = (view as any).lastActionRecarregarRow;
+  const zerarRow = (view as any).lastActionZerarRow;
+
+  assert.equal(recarregarRow, 23, "Recarregar must be at terminal row 23");
+  assert.equal(zerarRow, 24, "Zerar Cooldowns must be at terminal row 24");
+
+  // 1. Hover on Recarregar (row 23, col 10)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: recarregarRow, col: 10 },
+  });
+  assert.equal((view as any).hoveredActionRow, recarregarRow, "must hover Recarregar button");
+
+  let renderText = view.render(80, 24).join("\n");
+  assert.ok(renderText.includes("[ R ] Recarregar"), "must render button text");
+
+  // 2. Hover on Zerar Cooldowns (row 24, col 10)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: zerarRow, col: 10 },
+  });
+  assert.equal((view as any).hoveredActionRow, zerarRow, "must hover Zerar button");
+
+  // 3. Hover outside (row 22, col 10 - which is "Ações:")
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 22, col: 10 },
+  });
+  assert.equal((view as any).hoveredActionRow, null, "hovering on Ações label must not highlight buttons");
+
+  // 4. Click on Recarregar
+  await view.handleKey({
+    name: "click",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "click", row: recarregarRow, col: 10, button: "left" },
+  });
+  renderText = view.render(80, 24).join("\n");
+  assert.ok(renderText.includes("Status atualizado"), "clicking Recarregar must update status message");
+});

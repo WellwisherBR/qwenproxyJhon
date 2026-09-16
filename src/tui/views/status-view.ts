@@ -195,20 +195,15 @@ export class StatusView implements TuiView {
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Ações:")}`,
     ];
-
     const recarregarIdx = leftContent.length;
     const zerarIdx = leftContent.length + 1;
-    this.lastActionRecarregarRow = 4 + recarregarIdx;
-    this.lastActionZerarRow = 4 + zerarIdx;
+    this.lastActionRecarregarRow = 5 + recarregarIdx;
+    this.lastActionZerarRow = 5 + zerarIdx;
 
     leftContent.push(
-      `    ${this.hoveredActionRow === this.lastActionRecarregarRow ? theme.bgHover(` ${theme.cyan("[ R ] Recarregar")} `) : `${theme.cyan("[ R ]")} Recarregar`}`,
-      `    ${this.hoveredActionRow === this.lastActionZerarRow ? theme.bgHover(` ${theme.yellow("[ Z ] Zerar Cooldowns")} `) : `${theme.yellow("[ Z ]")} Zerar Cooldowns`}`,
+      `   ${this.hoveredActionRow === this.lastActionRecarregarRow ? theme.bgHover(` ${theme.cyan("[ R ] Recarregar")} `) : ` ${theme.cyan("[ R ]")} Recarregar`}`,
+      `   ${this.hoveredActionRow === this.lastActionZerarRow ? theme.bgHover(` ${theme.yellow("[ Z ] Zerar Cooldowns")} `) : ` ${theme.yellow("[ Z ]")} Zerar Cooldowns`}`,
     );
-    if (this.actionMessage) {
-      leftContent.push("");
-      leftContent.push(`  ${this.actionMessage}`);
-    }
 
     const boxHeight = Math.max(contentH, leftContent.length + 2);
 
@@ -218,11 +213,12 @@ export class StatusView implements TuiView {
       height: boxHeight,
       borderColor: theme.borderInactive,
       titleColor: theme.cyan,
+      footer: this.actionMessage || undefined,
       content: leftContent,
     });
-
     // Right Column: Accounts Pool Status
     const accounts = data?.accounts || [];
+
     const readyCount = accounts.filter((a) => !a.onCooldown && a.headersReady).length;
     const poolPct = accounts.length > 0 ? Math.round((readyCount / accounts.length) * 100) : 0;
     const poolColor = poolPct >= 70 ? theme.green : poolPct >= 40 ? theme.yellow : theme.red;
