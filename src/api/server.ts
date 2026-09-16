@@ -22,6 +22,11 @@ import { AuthError, NotFoundError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
 import { isAuthMockEnabled } from "../services/auth-playwright.js";
 
+import {
+  hookServerConsoleForLogging,
+  getServerLogHistory,
+  subscribeServerLogStream,
+} from "../core/server-log-buffer.ts";
 // Module-level state (initialized in startServer)
 let cache: MemoryCache | undefined;
 let watchdog: Watchdog | undefined;
@@ -134,6 +139,8 @@ app.use("*", async (c, next) => {
   const isProbe =
     c.req.path === "/health" ||
     c.req.path === "/metrics" ||
+    c.req.path === "/logs" ||
+    c.req.path.startsWith("/logs") ||
     c.req.path.startsWith("/diagnostics") ||
     c.req.path === "/favicon.ico";
 
@@ -328,6 +335,44 @@ app.get("/metrics", (c) => {
   return c.text(metrics.formatPrometheus(), {
     headers: { "Content-Type": "text/plain; version=0.0.4" },
   });
+});
+
+app.get("/logs", (c) => {
+  return c.json(getServerLogHistory());
+});
+
+app.get("/logs/live", (c) => {
+  const encoder = new TextEncoder();
+  return c.body(
+    new ReadableStream({
+      start(controller) {
+        const past = getServerLogHistory();
+        for (const entry of past) {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`));
+          } catch {}
+        }
+
+        const unsubscribe = subscribeServerLogStream((entry) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`));
+          } catch {
+            unsubscribe();
+          }
+        });
+
+        c.req.raw.signal.addEventListener("abort", () => {
+          unsubscribe();
+        });
+      },
+    }),
+    200,
+    {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  );
 });
 
 app.onError((err, c) => {
@@ -631,6 +676,7 @@ export async function startServer(options?: {
   installSignalHandlers?: boolean;
   showBanner?: boolean;
 }): Promise<StartedServerInfo> {
+  hookServerConsoleForLogging();
   if (server) {
     if (options?.installSignalHandlers !== false) installSignalHandlers();
     return buildStartedServerInfo();

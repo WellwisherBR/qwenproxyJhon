@@ -31,6 +31,7 @@ export class ServerManager {
   private intercepted = false;
   private isTuiRendering = false;
   private startPromise: Promise<void> | null = null;
+  private remoteLogAbort: AbortController | null = null;
 
   public static getInstance(): ServerManager {
     if (!ServerManager.instance) {
@@ -234,6 +235,7 @@ export class ServerManager {
           "INFO",
           `✨ [Server] Conectado à instância em execução na porta ${port}`,
         );
+        this.startRemoteLogStream(cleanHost, port);
         return;
       }
     } catch {}
@@ -269,10 +271,53 @@ export class ServerManager {
   }
 
   public async stop(): Promise<void> {
+    if (this.remoteLogAbort) {
+      this.remoteLogAbort.abort();
+      this.remoteLogAbort = null;
+    }
     this.restoreLogs();
     try {
-      await stopServer();
       this.state = "offline";
     } catch {}
+  }
+
+  public startRemoteLogStream(host: string, port: number): void {
+    if (this.remoteLogAbort) {
+      this.remoteLogAbort.abort();
+    }
+    const abort = new AbortController();
+    this.remoteLogAbort = abort;
+
+    (async () => {
+      try {
+        const resp = await fetch(`http://${host}:${port}/logs/live`, {
+          signal: abort.signal,
+          headers: { Accept: "text/event-stream" },
+        });
+        if (!resp.ok || !resp.body) return;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (!abort.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data && data.message) {
+                  this.appendLog(data.level || "INFO", data.message);
+                }
+              } catch {}
+            }
+          }
+        }
+      } catch {}
+    })();
   }
 }

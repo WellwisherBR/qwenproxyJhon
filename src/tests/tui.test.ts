@@ -14,6 +14,8 @@ import {
   drawBox,
   theme,
   glyphs,
+  setClipboardText,
+  getClipboardText,
 } from "../tui/theme.ts";
 import { maskAccountIdentifier } from "../tui/proxy-client.ts";
 import { StatusView } from "../tui/views/status-view.ts";
@@ -1431,4 +1433,38 @@ test("TUI StatusView: precision mouse hover and click on action buttons", async 
   });
   renderText = view.render(80, 24).join("\n");
   assert.ok(renderText.includes("Status atualizado"), "clicking Recarregar must update status message");
+});
+
+test("TUI Theme: setClipboardText and getClipboardText preserve full Unicode emojis and accents", () => {
+  const original = "✨ [Server] Conectado à instância em execução na porta 7936";
+  const ok = setClipboardText(original);
+  assert.ok(ok, "setClipboardText should succeed");
+
+  const retrieved = getClipboardText();
+  assert.ok(retrieved.includes("✨"), "Copied text must keep sparkle emoji without mojibake");
+  assert.ok(retrieved.includes("à"), "Copied text must keep accent à");
+  assert.ok(retrieved.includes("execução"), "Copied text must keep cedilla and tilde");
+});
+
+test("TUI ServerLogBuffer: captures and broadcasts server logs to subscribers", async () => {
+  const {
+    recordServerLog,
+    getServerLogHistory,
+    subscribeServerLogStream,
+  } = await import("../core/server-log-buffer.ts");
+
+  const received: string[] = [];
+  const unsub = subscribeServerLogStream((entry) => {
+    received.push(entry.message);
+  });
+
+  recordServerLog("INFO", "Test server message 1");
+  recordServerLog("WARN", "Test server message 2");
+  unsub();
+
+  assert.ok(received.includes("Test server message 1"), "Subscriber must receive message 1");
+  assert.ok(received.includes("Test server message 2"), "Subscriber must receive message 2");
+
+  const history = getServerLogHistory();
+  assert.ok(history.some((h) => h.message === "Test server message 1"));
 });

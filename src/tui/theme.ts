@@ -64,8 +64,7 @@ export function setClipboardText(text: string): boolean {
     // 2. OS-level clipboard utility
     if (process.platform === "win32") {
       const p = spawnSync("clip.exe", {
-        input: text,
-        encoding: "utf-8",
+        input: Buffer.from(text, "utf16le"),
         windowsHide: true,
       });
       return p.status === 0;
@@ -90,12 +89,15 @@ export function setClipboardText(text: string): boolean {
 export function getClipboardText(): string {
   try {
     if (process.platform === "win32") {
-      return execSync("powershell -NoProfile -Command Get-Clipboard", {
-        timeout: 1000,
-        windowsHide: true,
-        stdio: ["pipe", "pipe", "ignore"],
-      })
-        .toString()
+      return execSync(
+        'powershell -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard"',
+        {
+          timeout: 2000,
+          windowsHide: true,
+          stdio: ["pipe", "pipe", "ignore"],
+        },
+      )
+        .toString("utf8")
         .replace(/\r?\n/g, "")
         .trim();
     }
