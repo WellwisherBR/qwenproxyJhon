@@ -106,8 +106,9 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
 
     cachedAccounts = rawAccounts.map((acc) => {
       const cooldownInfo = getAccountCooldownInfo(acc.id);
-      const onCooldown = Boolean(cooldownInfo?.onCooldown);
-      const remainingCooldownMs = cooldownInfo?.remainingMs || 0;
+      const onCooldown = Boolean(cooldownInfo?.onCooldown || (acc.cooldown_until && acc.cooldown_until > now));
+      const remainingCooldownMs = cooldownInfo?.remainingMs || (acc.cooldown_until && acc.cooldown_until > now ? acc.cooldown_until - now : 0);
+      const cooldownReason = cooldownInfo?.reason || acc.cooldown_reason || (onCooldown ? "RateLimited" : null);
       const headersReady = lastServerReadyAccounts !== null
         ? lastServerReadyAccounts.has(acc.id)
         : isAccountHeadersReady(acc.id);
@@ -121,6 +122,7 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
         cooldownUntil: acc.cooldown_until || null,
         onCooldown,
         remainingCooldownMs,
+        cooldownReason,
         headersReady,
         isInitialized,
       };

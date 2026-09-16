@@ -1294,3 +1294,44 @@ test("TUI Screen: deduplicates identical cell hovers and throttles mouse motion"
 
   (screen as any).active = false;
 });
+
+test("TUI AccountsView: renders specific cooldown reasons for auth failure, rate limit, and waf", async () => {
+  const view = new AccountsView();
+  const mockSnapshot = {
+    online: true,
+    accounts: [
+      {
+        id: "acc-auth-fail",
+        emailOrName: "badpass@test.com",
+        priority: 1,
+        onCooldown: true,
+        remainingCooldownMs: 800 * 60 * 1000,
+        cooldownReason: "AuthFailed: All login methods exhausted",
+        headersReady: false,
+      },
+      {
+        id: "acc-rate-limit",
+        emailOrName: "limited@test.com",
+        priority: 1,
+        onCooldown: true,
+        remainingCooldownMs: 45 * 60 * 1000,
+        cooldownReason: "RateLimited",
+        headersReady: true,
+      },
+    ],
+  };
+
+  // Inspect first account (Auth failed)
+  (view as any).selectedIndex = 0;
+  let render = view.render(80, 24, mockSnapshot as any).join("\n");
+  assert.ok(render.includes("Auth Fail"), "Left panel must show Auth Fail status for auth failures");
+  assert.ok(render.includes("Motivo:"), "Right panel must display Motivo row");
+  assert.ok(render.includes("Senha/Login"), "Right panel must explain senha/login failure");
+
+  // Inspect second account (Rate limited)
+  (view as any).selectedIndex = 1;
+  render = view.render(80, 24, mockSnapshot as any).join("\n");
+  assert.ok(render.includes("45m cd"), "Left panel must show countdown for rate limit");
+  assert.ok(render.includes("Motivo:"), "Right panel must display Motivo row");
+  assert.ok(render.includes("Cota Excedida") || render.includes("RateLimit"), "Right panel must explain rate limit");
+});

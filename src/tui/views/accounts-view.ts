@@ -13,6 +13,33 @@ import {
 import { addAccount, removeAccount } from "../../core/accounts.ts";
 import { ServerManager } from "../server-manager.ts";
 import { config } from "../../core/config.ts";
+export function formatCooldownReason(reason?: string | null, maxLen = 28): string {
+  if (!reason) return theme.yellow("Cooldown ativo");
+  if (
+    reason.startsWith("AuthFailed") ||
+    reason.startsWith("AuthPermanentFailure") ||
+    reason.includes("All login methods exhausted")
+  ) {
+    return theme.red(truncate("❌ Senha/Login inválido", maxLen));
+  }
+  if (reason === "AuthInitFailed") {
+    return theme.yellow(truncate("⚠️ Timeout Inicial (WAF/Headers)", maxLen));
+  }
+  if (reason === "RateLimited" || reason === "QuotaExceeded") {
+    return theme.yellow(truncate("⏳ Cota Excedida (Reset 00:00 UTC)", maxLen));
+  }
+  if (reason === "WafChallenge") {
+    return theme.peach(truncate("🛡️ Bloqueio WAF/Anti-Bot", maxLen));
+  }
+  if (reason.startsWith("StandbyValidationError")) {
+    return theme.red(truncate("❌ Falha Validação Standby", maxLen));
+  }
+  if (reason === "MediaGenFailed") {
+    return theme.yellow(truncate("⚠️ Falha Geração de Mídia", maxLen));
+  }
+  return theme.yellow(truncate(reason, maxLen));
+}
+
 export class AccountsView implements TuiView {
   public readonly id = "accounts";
   public readonly title = "Contas";
@@ -662,8 +689,22 @@ export class AccountsView implements TuiView {
 
         let status = theme.green(`${glyphs.bullet} Pronto   `);
         if (acc.onCooldown) {
-          const mins = Math.max(1, Math.round(acc.remainingCooldownMs / 60000));
-          status = theme.yellow(`⚠️ ${mins}m cd   `);
+          const reason = acc.cooldownReason || "";
+          if (
+            reason.startsWith("AuthFailed") ||
+            reason.startsWith("AuthPermanentFailure") ||
+            reason.includes("All login methods exhausted")
+          ) {
+            status = theme.red(`❌ Auth Fail `);
+          } else if (reason === "WafChallenge") {
+            status = theme.peach(`🛡️ WAF Block  `);
+          } else if (reason === "AuthInitFailed") {
+            const mins = Math.max(1, Math.round(acc.remainingCooldownMs / 60000));
+            status = theme.yellow(`⚠️ ${mins}m init `);
+          } else {
+            const mins = Math.max(1, Math.round(acc.remainingCooldownMs / 60000));
+            status = theme.yellow(`⚠️ ${mins}m cd   `);
+          }
         } else if (!acc.headersReady) {
           status = acc.isInitialized
             ? theme.yellow(`◐ Aquecendo...`)
@@ -724,7 +765,13 @@ export class AccountsView implements TuiView {
           ? theme.yellow(`◐ Aquecendo...`)
           : theme.muted(`${glyphs.circle} Standby (Sob Demanda)`);
       rightContent.push(`  ${theme.bold("Headers:")}    ${hStatus}`);
-      rightContent.push("");
+      if (selected.onCooldown && selected.cooldownReason) {
+        const maxReasonW = Math.max(16, rightW - 14);
+        const cdReason = formatCooldownReason(selected.cooldownReason, maxReasonW);
+        rightContent.push(`  ${theme.bold("Motivo:")}     ${cdReason}`);
+      } else {
+        rightContent.push("");
+      }
       rightContent.push(`  ${theme.dim("─────────────────────────────────")}`);
       rightContent.push(`  ${this.hoveredActionRow === 15 ? theme.bgHover(` ${theme.cyan("[ A ] Adicionar Conta")} `) : `${theme.cyan("[ A ]")} Adicionar Conta`}`);
       rightContent.push(`  ${this.hoveredActionRow === 16 ? theme.bgHover(` ${theme.red("[ D ] Remover Conta")} `) : `${theme.red("[ D ]")} Remover Conta`}`);
