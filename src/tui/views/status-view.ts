@@ -19,6 +19,36 @@ export function renderProgressBar(
   const empty = Math.max(0, width - filled);
   return colorFn("█".repeat(filled)) + theme.muted("░".repeat(empty));
 }
+export function getAccountReadinessScore(acc: {
+  onCooldown: boolean;
+  headersReady: boolean;
+  activeStreams?: number;
+  isInitialized?: boolean;
+  cooldownReason?: string | null;
+}): number {
+  if (acc.onCooldown) {
+    const reason = acc.cooldownReason || "";
+    if (
+      reason.startsWith("AuthFailed") ||
+      reason.startsWith("AuthPermanentFailure") ||
+      reason.includes("login methods exhausted")
+    ) {
+      return 0; // Auth Fail at the very bottom
+    }
+    return 10; // Other cooldowns (RateLimited, WafChallenge, etc.)
+  }
+  if (acc.activeStreams && acc.activeStreams > 0 && acc.headersReady) {
+    return 100; // Actively generating code
+  }
+  if (acc.headersReady) {
+    return 80; // Ready / Warm
+  }
+  if (acc.isInitialized) {
+    return 60; // Warming up
+  }
+  return 40; // Healthy standby
+}
+
 
 export class StatusView implements TuiView {
   public readonly id = "status";
@@ -223,8 +253,15 @@ export class StatusView implements TuiView {
       content: leftContent,
     });
     // Right Column: Accounts Pool Status
-    const accounts = data?.accounts || [];
-
+    const rawAccounts = data?.accounts || [];
+    const accounts = [...rawAccounts].sort((a, b) => {
+      const scoreA = getAccountReadinessScore(a);
+      const scoreB = getAccountReadinessScore(b);
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
+      }
+      return 0;
+    });
     const availableCount = accounts.filter((a) => !a.onCooldown).length;
     const readyCount = accounts.filter((a) => !a.onCooldown && a.headersReady).length;
     const standbyCount = accounts.filter((a) => !a.onCooldown && !a.headersReady).length;

@@ -1484,3 +1484,32 @@ test("TUI ServerLogBuffer: captures and broadcasts server logs to subscribers", 
   const history = getServerLogHistory();
   assert.ok(history.some((h) => h.message === "Test server message 1"));
 });
+
+test("TUI StatusView: orders ready and active accounts ahead of standby and cooldown accounts", () => {
+  const view = new StatusView();
+  const snapshot = {
+    online: true,
+    accounts: [
+      { id: "1", emailOrName: "standby1@test.com", priority: 1, onCooldown: false, remainingCooldownMs: 0, headersReady: false, isInitialized: false },
+      { id: "2", emailOrName: "cd2@test.com", priority: 1, onCooldown: true, remainingCooldownMs: 60000, cooldownReason: "RateLimited", headersReady: false, isInitialized: false },
+      { id: "3", emailOrName: "ready3@test.com", priority: 1, onCooldown: false, remainingCooldownMs: 0, headersReady: true, isInitialized: true, activeStreams: 0 },
+      { id: "4", emailOrName: "generating4@test.com", priority: 1, onCooldown: false, remainingCooldownMs: 0, headersReady: true, isInitialized: true, activeStreams: 1 },
+      { id: "5", emailOrName: "authfail5@test.com", priority: 1, onCooldown: true, remainingCooldownMs: 800000, cooldownReason: "AuthFailed: All login methods exhausted", headersReady: false, isInitialized: false },
+    ],
+  };
+
+  const rendered = view.render(100, 24, snapshot as any).join("\n");
+  const clean = stripAnsi(rendered);
+
+  // Position of each account in the rendered output
+  const posGenerating = clean.indexOf("generating4");
+  const posReady = clean.indexOf("ready3");
+  const posStandby = clean.indexOf("standby1");
+  const posCd = clean.indexOf("cd2");
+  const posAuthFail = clean.indexOf("authfail5");
+  assert.ok(posGenerating !== -1 && posReady !== -1 && posStandby !== -1 && posCd !== -1 && posAuthFail !== -1);
+  assert.ok(posGenerating < posReady, "Generating account must be listed before ready account");
+  assert.ok(posReady < posStandby, "Ready account must be listed before standby account");
+  assert.ok(posStandby < posCd, "Standby account must be listed before cooldown account");
+  assert.ok(posCd < posAuthFail, "Cooldown account must be listed before auth fail account");
+});
