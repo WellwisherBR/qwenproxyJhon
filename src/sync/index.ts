@@ -151,6 +151,64 @@ export interface ClientDetectionStatus {
   url?: string;
 }
 
+export function isExecutableInPath(name: string): boolean {
+  const envPath = process.env.PATH || "";
+  const dirs = envPath.split(path.delimiter).filter(Boolean);
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").map((e) => e.toLowerCase())
+    : [""];
+
+  for (const dir of dirs) {
+    for (const ext of extensions) {
+      const fullPath = path.join(dir, name + ext);
+      try {
+        if (fs.existsSync(fullPath) && !fs.statSync(fullPath).isDirectory()) {
+          return true;
+        }
+      } catch {}
+    }
+  }
+  return false;
+}
+
+export function isVscodeExtensionInstalled(pattern: RegExp): boolean {
+  const home = os.homedir();
+  const candidateDirs = [
+    path.join(home, ".vscode", "extensions"),
+    path.join(home, ".vscode-insiders", "extensions"),
+    path.join(home, ".cursor", "extensions"),
+    path.join(home, ".windsurf", "extensions"),
+  ];
+  for (const d of candidateDirs) {
+    if (fs.existsSync(d)) {
+      try {
+        const entries = fs.readdirSync(d);
+        if (entries.some((e) => pattern.test(e))) return true;
+      } catch {}
+    }
+  }
+  return false;
+}
+
+export function isZedInstalled(): boolean {
+  if (isExecutableInPath("zed")) return true;
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA || "";
+    if (fs.existsSync(path.join(local, "Programs", "Zed"))) return true;
+  } else if (process.platform === "darwin") {
+    if (fs.existsSync("/Applications/Zed.app")) return true;
+  }
+  return false;
+}
+
+export function isMatchingLocalHost(text: string, port = 7936): boolean {
+  if (!text) return false;
+  const configuredPort = config.server?.port || 7936;
+  const ports = new Set([String(port), String(configuredPort), "7936", "3000"]);
+  const isLocal = text.includes("127.0.0.1") || text.includes("localhost") || text.includes("0.0.0.0");
+  return isLocal && Array.from(ports).some((p) => text.includes(`:${p}`));
+}
+
 /**
  * Inspects a client configuration file to determine whether the client is installed
  * and whether it is actively configured to route to QwenProxy.
@@ -161,6 +219,7 @@ export function inspectClientSyncStatus(
   port = 7936,
 ): ClientDetectionStatus {
   const defaultPaths = getDefaultPaths();
+  const isCustomPath = Boolean(filePath);
   const targetPath =
     filePath ||
     (id === "claude-code"
@@ -187,11 +246,37 @@ export function inspectClientSyncStatus(
     return { id, installed: false, synced: false };
   }
 
+  // For live checks (when no custom test path is provided), verify binary/package presence
+  // to avoid false "installed" detections on stray/abandoned config files.
+  if (!isCustomPath) {
+    if (id === "hermes" && !isExecutableInPath("hermes")) {
+      return { id, installed: false, synced: false };
+    }
+    if (
+      id === "openclaw" &&
+      !isExecutableInPath("openclaw") &&
+      !isExecutableInPath("clawdbot") &&
+      !isExecutableInPath("moltbot")
+    ) {
+      return { id, installed: false, synced: false };
+    }
+    if (id === "aider" && !isExecutableInPath("aider")) {
+      return { id, installed: false, synced: false };
+    }
+    if (
+      id === "kilo" &&
+      !isExecutableInPath("kilo") &&
+      !isVscodeExtensionInstalled(/kilo/i)
+    ) {
+      return { id, installed: false, synced: false };
+    }
+  }
+
   try {
     if (id === "cline") {
-      // Inspect SQLite DB
       let isSynced = false;
       let model: string | undefined;
+      let rowExists = false;
       try {
         const db = new Database(targetPath, { readonly: true });
         const row = db
@@ -201,18 +286,19 @@ export function inspectClientSyncStatus(
           .get() as { value: string } | undefined;
         db.close();
         if (row && row.value) {
+          rowExists = true;
           const parsed = JSON.parse(row.value);
           const url = parsed.openAiBaseUrl || "";
           model = parsed.openAiModelId;
-          isSynced = Boolean(
-            url &&
-              (url.includes(String(port)) ||
-                url.includes(`127.0.0.1:${port}`) ||
-                url.includes(`localhost:${port}`)),
-          );
+          isSynced = isMatchingLocalHost(url, port);
         }
       } catch {}
-      return { id, installed: true, synced: isSynced, model };
+
+      const isInstalled = isCustomPath
+        ? true
+        : rowExists || isExecutableInPath("cline") || isVscodeExtensionInstalled(/cline|zoo-code|roo-cline/i);
+
+      return { id, installed: isInstalled, synced: isInstalled && isSynced, model };
     }
 
     const raw = fs.readFileSync(targetPath, "utf-8");
@@ -221,12 +307,8 @@ export function inspectClientSyncStatus(
       const data = JSON.parse(raw);
       const url = data?.env?.ANTHROPIC_BASE_URL || "";
       const model = data?.env?.ANTHROPIC_MODEL || data?.model || "";
-      const isLocalHost =
-        url.includes(String(port)) ||
-        url.includes(`127.0.0.1:${port}`) ||
-        url.includes(`localhost:${port}`);
       const isSynced =
-        isLocalHost &&
+        isMatchingLocalHost(url, port) &&
         (model.toLowerCase().includes("qwen") || Boolean(data?.env?.ANTHROPIC_AUTH_TOKEN));
       return {
         id,
@@ -244,13 +326,11 @@ export function inspectClientSyncStatus(
       const model = modelMatch ? modelMatch[1] : undefined;
       const urlMatch = raw.match(/\[model_providers\.qwenproxy\][\s\S]*?base_url\s*=\s*["']([^"']+)["']/);
       const url = urlMatch ? urlMatch[1] : "";
-      const isLocalHost = Boolean(
-        url && (url.includes(String(port)) || url.includes(`127.0.0.1:${port}`) || url.includes(`localhost:${port}`)),
-      );
+      const isSynced = hasProvider && isProviderActive && isMatchingLocalHost(url, port);
       return {
         id,
         installed: true,
-        synced: hasProvider && isProviderActive && isLocalHost,
+        synced: isSynced,
         model,
       };
     }
@@ -261,20 +341,13 @@ export function inspectClientSyncStatus(
         const data = JSON.parse(raw);
         const provider = data?.provider?.qwenproxy;
         const url = provider?.options?.baseURL || "";
-        const isLocalHost =
-          url.includes(String(port)) ||
-          url.includes(`127.0.0.1:${port}`) ||
-          url.includes(`localhost:${port}`);
-        isSynced = Boolean(provider && isLocalHost);
+        const isSynced = Boolean(provider && isMatchingLocalHost(url, port));
+        return { id, installed: true, synced: isSynced };
       } catch {
         const qwenBlockMatch = raw.match(/"qwenproxy"\s*:\s*\{[\s\S]*?"baseURL"\s*:\s*"([^"]+)"/);
         const url = qwenBlockMatch ? qwenBlockMatch[1] : "";
-        isSynced = Boolean(
-          url &&
-            (url.includes(String(port)) ||
-              url.includes(`127.0.0.1:${port}`) ||
-              url.includes(`localhost:${port}`)),
-        );
+        const isSynced = Boolean(url && isMatchingLocalHost(url, port));
+        return { id, installed: true, synced: isSynced };
       }
       return {
         id,
@@ -290,12 +363,7 @@ export function inspectClientSyncStatus(
       if (ompMatch) {
         const urlMatch = ompMatch[1].match(/baseUrl:\s*(\S+)/);
         url = urlMatch ? urlMatch[1].replace(/['"]/g, "") : undefined;
-        isSynced = Boolean(
-          url &&
-            (url.includes(String(port)) ||
-              url.includes(`127.0.0.1:${port}`) ||
-              url.includes(`localhost:${port}`)),
-        );
+        isSynced = Boolean(url && isMatchingLocalHost(url, port));
       }
       return {
         id,
@@ -306,47 +374,27 @@ export function inspectClientSyncStatus(
     }
 
     if (id === "hermes") {
-      const isLocalHost =
-        raw.includes(String(port)) ||
-        raw.includes(`127.0.0.1:${port}`) ||
-        raw.includes(`localhost:${port}`);
-      const isSynced = isLocalHost && (raw.includes("qwenproxy") || raw.includes("qwen"));
+      const isSynced = isMatchingLocalHost(raw, port) && (raw.includes("qwenproxy") || raw.includes("qwen"));
       return { id, installed: true, synced: isSynced };
     }
 
     if (id === "openclaw") {
-      const isLocalHost =
-        raw.includes(String(port)) ||
-        raw.includes(`127.0.0.1:${port}`) ||
-        raw.includes(`localhost:${port}`);
-      const isSynced = isLocalHost && raw.includes("qwenproxy");
+      const isSynced = isMatchingLocalHost(raw, port) && raw.includes("qwenproxy");
       return { id, installed: true, synced: isSynced };
     }
 
     if (id === "kilo") {
-      const isLocalHost =
-        raw.includes(String(port)) ||
-        raw.includes(`127.0.0.1:${port}`) ||
-        raw.includes(`localhost:${port}`);
-      const isSynced = isLocalHost && raw.includes("qwenproxy");
+      const isSynced = isMatchingLocalHost(raw, port) && raw.includes("qwenproxy");
       return { id, installed: true, synced: isSynced };
     }
 
     if (id === "zed") {
-      const isLocalHost =
-        raw.includes(String(port)) ||
-        raw.includes(`127.0.0.1:${port}`) ||
-        raw.includes(`localhost:${port}`);
-      const isSynced = isLocalHost && raw.includes("QwenProxy");
+      const isSynced = isMatchingLocalHost(raw, port) && raw.includes("QwenProxy");
       return { id, installed: true, synced: isSynced };
     }
 
     if (id === "aider") {
-      const isLocalHost =
-        raw.includes(String(port)) ||
-        raw.includes(`127.0.0.1:${port}`) ||
-        raw.includes(`localhost:${port}`);
-      const isSynced = isLocalHost && raw.includes("qwen");
+      const isSynced = isMatchingLocalHost(raw, port) && raw.includes("qwen");
       return { id, installed: true, synced: isSynced };
     }
   } catch {
