@@ -122,7 +122,137 @@ export function invalidateAccountsCache(): void {
   accountsCache = null;
   accountsCacheTime = 0;
 }
+export interface BatchAccountEntry {
+  email: string;
+  password: string;
+}
 
+export function parseBatchAccounts(rawInput: string): {
+  entries: BatchAccountEntry[];
+  invalid: string[];
+} {
+  if (!rawInput || typeof rawInput !== "string") {
+    return { entries: [], invalid: [] };
+  }
+
+  let text = rawInput.trim();
+  // Strip optional QWEN_ACCOUNTS= prefix and surrounding quotes
+  text = text.replace(/^QWEN_ACCOUNTS\s*=\s*["']?/i, "").replace(/["']?\s*$/i, "");
+
+  const lines = text.split(/\r?\n/);
+  const entries: BatchAccountEntry[] = [];
+  const invalid: string[] = [];
+  const seenEmails = new Set<string>();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+
+    // Check if line contains multiple accounts separated by comma or semicolon
+    const segments =
+      (line.includes(",") || line.includes(";")) && (line.match(/@/g) || []).length > 1
+        ? line.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+        : [line];
+
+    for (const seg of segments) {
+      let email = "";
+      let password = "";
+
+      if (seg.includes("---")) {
+        const parts = seg.split("---");
+        email = parts[0].trim();
+        password = parts.slice(1).join("---").trim();
+      } else if (seg.includes("\t")) {
+        const parts = seg.split("\t");
+        email = parts[0].trim();
+        password = parts.slice(1).join("\t").trim();
+      } else if (seg.includes(" | ")) {
+        const parts = seg.split(" | ");
+        email = parts[0].trim();
+        password = parts.slice(1).join(" | ").trim();
+      } else if (seg.includes(":")) {
+        const colonIdx = seg.indexOf(":");
+        email = seg.slice(0, colonIdx).trim();
+        password = seg.slice(colonIdx + 1).trim();
+      } else if (seg.includes(",")) {
+        const commaIdx = seg.indexOf(",");
+        email = seg.slice(0, commaIdx).trim();
+        password = seg.slice(commaIdx + 1).trim();
+      } else {
+        invalid.push(seg);
+        continue;
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !password || !emailRegex.test(email)) {
+        invalid.push(seg);
+        continue;
+      }
+
+      const normalizedEmail = email.toLowerCase();
+      if (!seenEmails.has(normalizedEmail)) {
+        seenEmails.add(normalizedEmail);
+        entries.push({ email, password });
+      }
+    }
+  }
+
+  return { entries, invalid };
+}
+
+export function addAccountsBatch(
+  entries: BatchAccountEntry[],
+): { added: QwenAccount[]; skipped: string[]; invalid: string[] } {
+  const db = getDatabase();
+  const added: QwenAccount[] = [];
+  const skipped: string[] = [];
+  const invalid: string[] = [];
+
+  const existingEmails = new Set(
+    (db.prepare("SELECT email FROM accounts").all() as Array<{ email: string }>).map((r) =>
+      r.email.toLowerCase(),
+    ),
+  );
+
+  const insertStmt = db.prepare(
+    "INSERT INTO accounts (id, email, password) VALUES (?, ?, ?)",
+  );
+
+  const insertBatch = db.transaction((items: BatchAccountEntry[]) => {
+    for (const item of items) {
+      const email = item.email.trim();
+      const password = item.password;
+      if (!email || !password) {
+        invalid.push(email || "(empty)");
+        continue;
+      }
+
+      if (existingEmails.has(email.toLowerCase())) {
+        skipped.push(email);
+        continue;
+      }
+
+      const newAccount: QwenAccount = {
+        id: crypto.randomUUID(),
+        email,
+        password,
+      };
+
+      insertStmt.run(newAccount.id, newAccount.email, encrypt(newAccount.password));
+      existingEmails.add(email.toLowerCase());
+      added.push(newAccount);
+    }
+  });
+
+  insertBatch(entries);
+
+  if (added.length > 0) {
+    invalidateAccountsCache();
+  }
+
+  return { added, skipped, invalid };
+}
 export function addAccount(
   email: string,
   password: string,

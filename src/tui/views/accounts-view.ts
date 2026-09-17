@@ -4,13 +4,18 @@
 
 import type { TuiView, ProxyStatusSnapshot } from "../types.ts";
 import type { KeyEvent } from "../screen.ts";
-import { theme, glyphs, drawBox, pad, truncate } from "../theme.ts";
+import { theme, glyphs, drawBox, pad, truncate, getClipboardText } from "../theme.ts";
 import {
   fetchProxyStatus,
   resetAllCooldowns,
   resetAccountCooldownById,
 } from "../proxy-client.ts";
-import { addAccount, removeAccount } from "../../core/accounts.ts";
+import {
+  addAccount,
+  removeAccount,
+  parseBatchAccounts,
+  addAccountsBatch,
+} from "../../core/accounts.ts";
 import { ServerManager } from "../server-manager.ts";
 import { config } from "../../core/config.ts";
 export function formatCooldownReason(reason?: string | null, maxLen = 28): string {
@@ -50,16 +55,22 @@ export class AccountsView implements TuiView {
   private statusMessage = "";
   private statusMessageTimer: NodeJS.Timeout | null = null;
   private isAddModalOpen = false;
+  private isBatchModalOpen = false;
   private addEmailInput = "";
   private addPasswordInput = "";
   private addEmailCursor = 0;
   private addPasswordCursor = 0;
   private addActiveField: "email" | "password" = "email";
+  private batchInput = "";
+  private batchCursor = 0;
+  private batchHoveredButton: "import" | "cancel" | null = null;
+  private lastBatchModalLeftPad = 0;
   private hoveredActionRow: number | null = null;
   private hoveredAccountIndex: number | null = null;
   private modalHoveredField: "email" | "password" | "save" | "cancel" | null = null;
   private lastModalLeftPad = 0;
   private lastLeftW = 46;
+  private accountsScrollOffset = 0;
   private confirmDialog: {
     type: "remove_account" | "delete_account_chats" | "delete_all_chats";
     title: string;
@@ -71,7 +82,9 @@ export class AccountsView implements TuiView {
   private lastConfirmModalLeftPad = 0;
   private lastConfirmModalStartRow = 0;
   constructor() {
-    this.refresh();
+    if (!process.env.NODE_TEST_CONTEXT) {
+      void this.refresh();
+    }
   }
 
   public onActivate(): void {
@@ -79,13 +92,20 @@ export class AccountsView implements TuiView {
   }
 
   public isCapturingText(): boolean {
-    return this.isAddModalOpen || this.confirmDialog !== null;
+    return this.isAddModalOpen || this.isBatchModalOpen || this.confirmDialog !== null;
   }
   public getShortcuts(): Array<{ key: string; label: string }> {
     if (this.confirmDialog) {
       return [
         { key: "S / Enter", label: "Confirmar" },
         { key: "N / Esc", label: "Cancelar" },
+      ];
+    }
+    if (this.isBatchModalOpen) {
+      return [
+        { key: "Enter", label: "Importar" },
+        { key: "Ctrl+V", label: "Colar Lote" },
+        { key: "Esc", label: "Cancelar" },
       ];
     }
     if (this.isAddModalOpen) {
@@ -97,6 +117,7 @@ export class AccountsView implements TuiView {
     }
     return [
       { key: "a", label: "Adicionar Conta" },
+      { key: "b", label: "Importar em Lote" },
       { key: "d", label: "Remover Conta" },
       { key: "x", label: "Limpar Chats" },
       { key: "l", label: "Limpar Todos Chats" },
@@ -167,6 +188,37 @@ export class AccountsView implements TuiView {
       }
     } catch (err: any) {
       this.setStatusMessage(theme.red(`✗ Erro ao salvar: ${err?.message || String(err)}`));
+    }
+  }
+  private async saveBatchAccounts(): Promise<void> {
+    const { entries } = parseBatchAccounts(this.batchInput);
+    if (entries.length === 0) {
+      this.setStatusMessage(theme.yellow("[!] Nenhuma conta válida detectada"));
+      return;
+    }
+
+    try {
+      const result = addAccountsBatch(entries);
+      this.isBatchModalOpen = false;
+      this.batchInput = "";
+      this.batchCursor = 0;
+      await this.refresh();
+
+      const addedCount = result.added.length;
+      const skippedCount = result.skipped.length;
+      if (addedCount > 0) {
+        const msg =
+          skippedCount > 0
+            ? `✓ ${addedCount} conta(s) adicionada(s)! (${skippedCount} já existiam)`
+            : `✓ ${addedCount} conta(s) adicionada(s) em lote!`;
+        this.setStatusMessage(theme.green(msg));
+      } else {
+        this.setStatusMessage(
+          theme.yellow(`[!] Todas as ${skippedCount} conta(s) já existiam no banco.`),
+        );
+      }
+    } catch (err: any) {
+      this.setStatusMessage(theme.red(`✗ Erro no lote: ${err?.message || String(err)}`));
     }
   }
   public async handleKey(key: KeyEvent): Promise<boolean | void> {
@@ -247,6 +299,109 @@ export class AccountsView implements TuiView {
           }
         }
       }
+      return true;
+    }
+    // 0.5 Batch Account Import Modal Active
+    if (this.isBatchModalOpen) {
+      if (key.name === "escape") {
+        this.isBatchModalOpen = false;
+        this.batchInput = "";
+        this.batchCursor = 0;
+        return true;
+      }
+
+      // Mouse hover in Batch modal
+      if (key.name === "hover" && key.mouse) {
+        const { row, col } = key.mouse;
+        const leftPad = this.lastBatchModalLeftPad || 0;
+        const relCol = col - leftPad;
+        if (row === 13 || row === 14) {
+          const btn = relCol <= 30 ? "import" : "cancel";
+          if (this.batchHoveredButton !== btn) {
+            this.batchHoveredButton = btn;
+            return true;
+          }
+        } else if (this.batchHoveredButton !== null) {
+          this.batchHoveredButton = null;
+          return true;
+        }
+      }
+
+      // Mouse click in Batch modal
+      if (key.name === "click" && key.mouse) {
+        const { row, col } = key.mouse;
+        const leftPad = this.lastBatchModalLeftPad || 0;
+        const relCol = col - leftPad;
+        if (row === 13 || row === 14) {
+          if (relCol <= 30) {
+            await this.saveBatchAccounts();
+            return true;
+          } else {
+            this.isBatchModalOpen = false;
+            this.batchInput = "";
+            this.batchCursor = 0;
+            return true;
+          }
+        }
+      }
+
+      // Paste event or Ctrl+V
+      if (key.name === "paste" || (key.ctrl && (key.name === "v" || key.raw === "\x16"))) {
+        const pasted = key.name === "paste" && key.char ? key.char : getClipboardText();
+        if (pasted) {
+          this.batchInput =
+            this.batchInput.slice(0, this.batchCursor) +
+            pasted +
+            this.batchInput.slice(this.batchCursor);
+          this.batchCursor += pasted.length;
+          return true;
+        }
+      }
+
+      // Single Ctrl+C in batch modal clears buffer
+      if (key.ctrl && key.name === "c") {
+        this.batchInput = "";
+        this.batchCursor = 0;
+        return true;
+      }
+
+      // Backspace
+      if (key.name === "backspace") {
+        if (this.batchCursor > 0) {
+          this.batchInput =
+            this.batchInput.slice(0, this.batchCursor - 1) +
+            this.batchInput.slice(this.batchCursor);
+          this.batchCursor--;
+        }
+        return true;
+      }
+
+      // Delete
+      if (key.name === "delete") {
+        if (this.batchCursor < this.batchInput.length) {
+          this.batchInput =
+            this.batchInput.slice(0, this.batchCursor) +
+            this.batchInput.slice(this.batchCursor + 1);
+        }
+        return true;
+      }
+
+      // Enter saves
+      if (key.name === "return") {
+        await this.saveBatchAccounts();
+        return true;
+      }
+
+      // Type character into batch buffer (including newline)
+      if (key.char && !key.ctrl && !key.meta && key.name !== "tab") {
+        this.batchInput =
+          this.batchInput.slice(0, this.batchCursor) +
+          key.char +
+          this.batchInput.slice(this.batchCursor);
+        this.batchCursor += key.char.length;
+        return true;
+      }
+
       return true;
     }
 
@@ -352,7 +507,6 @@ export class AccountsView implements TuiView {
 
       // Paste from clipboard with Ctrl+V
       if (key.ctrl && (key.name === "v" || key.raw === "\x16")) {
-        const { getClipboardText } = require("../theme.ts");
         const pasted = getClipboardText();
         if (pasted) {
           if (this.addActiveField === "email") {
@@ -460,6 +614,14 @@ export class AccountsView implements TuiView {
       return true;
     }
 
+    // Open Batch Import modal with 'b' or 'B'
+    if ((key.name === "b" || key.name === "B") && !key.ctrl) {
+      this.isBatchModalOpen = true;
+      this.batchInput = "";
+      this.batchCursor = 0;
+      return true;
+    }
+
     // Delete selected account with 'd' or 'D' (requires confirmation)
     if ((key.name === "d" || key.name === "D") && !key.ctrl) {
       const selected = accounts[this.selectedIndex];
@@ -546,9 +708,10 @@ export class AccountsView implements TuiView {
       const leftW = this.lastLeftW || 46;
 
       // Account list rows start at row 8 (row 4=box border, 5=blank, 6=header, 7=divider)
-      if (col >= 2 && col <= leftW - 1 && row >= 8 && row < 8 + accounts.length) {
-        const hoverIdx = row - 8;
-        if (this.hoveredAccountIndex !== hoverIdx) {
+      const availableRows = 14;
+      if (col >= 2 && col <= leftW - 1 && row >= 8 && row < 8 + Math.min(accounts.length, availableRows)) {
+        const hoverIdx = this.accountsScrollOffset + (row - 8);
+        if (this.hoveredAccountIndex !== hoverIdx && hoverIdx < accounts.length) {
           this.hoveredAccountIndex = hoverIdx;
           return true;
         }
@@ -559,7 +722,13 @@ export class AccountsView implements TuiView {
 
       // Right panel action buttons hover (rows 15 to 20)
       if (col >= leftW) {
-        if (row >= 15 && row <= 20) {
+        if (row === 15) {
+          const actionRow = col < leftW + 18 ? 15 : 21;
+          if (this.hoveredActionRow !== actionRow) {
+            this.hoveredActionRow = actionRow;
+            return true;
+          }
+        } else if (row >= 16 && row <= 20) {
           if (this.hoveredActionRow !== row) {
             this.hoveredActionRow = row;
             return true;
@@ -578,15 +747,23 @@ export class AccountsView implements TuiView {
       const { row, col } = key.mouse;
       const leftW = this.lastLeftW || 46;
 
+      const availableRows = Math.max(4, (this.lastLeftW ? 18 : 14));
       // Click on account row (rows 8, 9, ...)
-      if (col >= 2 && col <= leftW - 1 && row >= 8 && row < 8 + accounts.length) {
-        this.selectedIndex = row - 8;
-        return true;
+      if (col >= 2 && col <= leftW - 1 && row >= 8 && row < 8 + Math.min(accounts.length, availableRows)) {
+        const targetIdx = this.accountsScrollOffset + (row - 8);
+        if (targetIdx >= 0 && targetIdx < accounts.length) {
+          this.selectedIndex = targetIdx;
+          return true;
+        }
       }
-      // Right panel action buttons click (rows 15, 16, 17, 18)
+      // Right panel action buttons click (rows 15, 16, 17, 18, 19, 20)
       if (col >= leftW) {
         if (row === 15) {
-          await this.handleKey({ name: "a", ctrl: false, shift: false, meta: false });
+          if (col < leftW + 18) {
+            await this.handleKey({ name: "a", ctrl: false, shift: false, meta: false });
+          } else {
+            await this.handleKey({ name: "b", ctrl: false, shift: false, meta: false });
+          }
           return true;
         }
         if (row === 16) {
@@ -668,6 +845,11 @@ export class AccountsView implements TuiView {
     const accounts = data?.accounts || [];
     const selected = accounts[this.selectedIndex];
 
+    const availableRows = Math.max(4, contentH - 6);
+    if (this.selectedIndex >= accounts.length && accounts.length > 0) {
+      this.selectedIndex = accounts.length - 1;
+    }
+
     // Left Panel: Accounts List Table
     const leftContent: string[] = [
       "",
@@ -678,13 +860,30 @@ export class AccountsView implements TuiView {
     if (accounts.length === 0) {
       leftContent.push("");
       leftContent.push(`  ${theme.yellow("Nenhuma conta configurada ainda.")}`);
-      leftContent.push(`  ${theme.muted("Pressione ")}${theme.cyan("'A'")}${theme.muted(" ou use a opção ao lado para adicionar.")}`);
+      leftContent.push(
+        `  ${theme.muted("Pressione ")}${theme.cyan("'A'")}${theme.muted(" (individual) ou ")}${theme.cyan("'B'")}${theme.muted(" (em lote).")}`,
+      );
     } else {
-      accounts.forEach((acc, idx) => {
-        const isFocused = idx === this.selectedIndex;
-        const isHovered = idx === this.hoveredAccountIndex;
+      // Clamp scroll offset to keep selectedIndex inside visible window
+      if (this.selectedIndex < this.accountsScrollOffset) {
+        this.accountsScrollOffset = this.selectedIndex;
+      } else if (this.selectedIndex >= this.accountsScrollOffset + availableRows) {
+        this.accountsScrollOffset = this.selectedIndex - availableRows + 1;
+      }
+      const maxScroll = Math.max(0, accounts.length - availableRows);
+      this.accountsScrollOffset = Math.max(0, Math.min(this.accountsScrollOffset, maxScroll));
+
+      const visibleAccounts = accounts.slice(
+        this.accountsScrollOffset,
+        this.accountsScrollOffset + availableRows,
+      );
+
+      visibleAccounts.forEach((acc, visibleIdx) => {
+        const actualIdx = this.accountsScrollOffset + visibleIdx;
+        const isFocused = actualIdx === this.selectedIndex;
+        const isHovered = actualIdx === this.hoveredAccountIndex;
         const pointer = isFocused ? theme.cyan(`${glyphs.pointer} `) : "  ";
-        const num = pad(String(idx + 1) + ".", 4);
+        const num = pad(String(actualIdx + 1) + ".", 4);
         const name = pad(truncate(acc.emailOrName, 20), 22);
 
         let status = theme.green(`${glyphs.bullet} Pronto   `);
@@ -722,8 +921,13 @@ export class AccountsView implements TuiView {
       });
     }
 
+    const boxTitle =
+      accounts.length > availableRows
+        ? `Contas (${this.accountsScrollOffset + 1}-${Math.min(accounts.length, this.accountsScrollOffset + availableRows)} de ${accounts.length})`
+        : `Contas (${accounts.length})`;
+
     const leftBox = drawBox({
-      title: `Contas (${accounts.length})`,
+      title: boxTitle,
       width: leftW,
       height: contentH,
       borderColor: theme.borderActive,
@@ -731,7 +935,6 @@ export class AccountsView implements TuiView {
       footer: this.statusMessage || undefined,
       content: leftContent,
     });
-
     // Right Panel: Selected Account Details
     const rightContent: string[] = [
       "",
@@ -747,7 +950,9 @@ export class AccountsView implements TuiView {
       rightContent.push("");
       rightContent.push("");
       rightContent.push(`  ${theme.dim("─────────────────────────────────")}`);
-      rightContent.push(`  ${this.hoveredActionRow === 15 ? theme.bgHover(` ${theme.cyan("[ A ] Adicionar Conta")} `) : `${theme.cyan("[ A ]")} Adicionar Conta`}`);
+      const btnA = this.hoveredActionRow === 15 ? theme.bgHover(` ${theme.cyan("[ A ] Adicionar")} `) : `${theme.cyan("[ A ]")} Adicionar`;
+      const btnB = this.hoveredActionRow === 21 ? theme.bgHover(` ${theme.cyan("[ B ] Em Lote")} `) : `${theme.cyan("[ B ]")} Em Lote`;
+      rightContent.push(`  ${btnA}   ${btnB}`);
     } else {
       const email = truncate(selected.emailOrName, 18);
       rightContent.push(`  ${theme.bold("Conta:")}      ${theme.cyan(email)}`);
@@ -773,7 +978,9 @@ export class AccountsView implements TuiView {
         rightContent.push("");
       }
       rightContent.push(`  ${theme.dim("─────────────────────────────────")}`);
-      rightContent.push(`  ${this.hoveredActionRow === 15 ? theme.bgHover(` ${theme.cyan("[ A ] Adicionar Conta")} `) : `${theme.cyan("[ A ]")} Adicionar Conta`}`);
+      const btnA = this.hoveredActionRow === 15 ? theme.bgHover(` ${theme.cyan("[ A ] Adicionar")} `) : `${theme.cyan("[ A ]")} Adicionar`;
+      const btnB = this.hoveredActionRow === 21 ? theme.bgHover(` ${theme.cyan("[ B ] Em Lote")} `) : `${theme.cyan("[ B ]")} Em Lote`;
+      rightContent.push(`  ${btnA}   ${btnB}`);
       rightContent.push(`  ${this.hoveredActionRow === 16 ? theme.bgHover(` ${theme.red("[ D ] Remover Conta")} `) : `${theme.red("[ D ]")} Remover Conta`}`);
       rightContent.push(`  ${this.hoveredActionRow === 17 ? theme.bgHover(` ${theme.yellow("[ C ] Zerar Cooldown")} `) : `${theme.yellow("[ C ]")} Zerar Cooldown`}`);
       rightContent.push(`  ${this.hoveredActionRow === 18 ? theme.bgHover(` ${theme.green("[ Z ] Zerar Todas")} `) : `${theme.green("[ Z ]")} Zerar Todas`}`);
@@ -796,6 +1003,61 @@ export class AccountsView implements TuiView {
       const leftRow = leftBox[r] || " ".repeat(leftW);
       const rightRow = rightBox[r] || " ".repeat(rightW);
       mergedLines.push(leftRow + " " + rightRow);
+    }
+    if (this.isBatchModalOpen) {
+      const modalW = Math.min(width - 4, 70);
+      this.lastBatchModalLeftPad = Math.max(0, Math.floor((width - modalW) / 2));
+
+      const parsed = parseBatchAccounts(this.batchInput);
+      const count = parsed.entries.length;
+      const invalidCount = parsed.invalid.length;
+
+      const rawLines = this.batchInput.split(/\r?\n/).filter(Boolean);
+      const previewLines = rawLines.slice(-4);
+      const displaySnippet = previewLines.map((l) => "    " + truncate(l, modalW - 8));
+      while (displaySnippet.length < 4) {
+        displaySnippet.unshift("    " + theme.dim("(linha vazia)"));
+      }
+
+      const countBadge =
+        count > 0
+          ? theme.green(`✓ ${count} conta(s) detectada(s)`)
+          : theme.yellow("0 contas detectadas");
+      const invalidBadge =
+        invalidCount > 0 ? theme.red(` | ${invalidCount} formato(s) ignorado(s)`) : "";
+
+      const importBtn =
+        this.batchHoveredButton === "import"
+          ? theme.bgHover(theme.green(" [ Enter ] Importar "))
+          : theme.green("[ Enter ] Importar");
+
+      const cancelBtn =
+        this.batchHoveredButton === "cancel"
+          ? theme.bgHover(theme.red(" [ Esc ] Cancelar "))
+          : theme.muted("[ Esc ] Cancelar");
+
+      const modalContent = [
+        "",
+        `  ${theme.bold("Cole suas contas")} ${theme.dim("(email:senha, uma por linha ou formato .env)")}:`,
+        `  ${theme.dim("────────────────────────────────────────────────────────")}`,
+        ...displaySnippet,
+        `  ${theme.dim("────────────────────────────────────────────────────────")}`,
+        `  Status: ${countBadge}${invalidBadge}`,
+        "",
+        `  ${importBtn}    ${cancelBtn}    ${theme.dim("(Ctrl+V colar)")}`,
+      ];
+
+      const modalBox = drawBox({
+        title: "Importar Contas em Lote (Multi-Contas)",
+        width: modalW,
+        height: Math.min(contentH, 13),
+        borderColor: theme.borderActive,
+        titleColor: theme.cyan,
+        content: modalContent,
+      });
+
+      const padStr = " ".repeat(this.lastBatchModalLeftPad);
+      return modalBox.map((line) => padStr + line);
     }
     if (this.isAddModalOpen) {
       const modalW = Math.min(width - 4, 66);

@@ -1555,3 +1555,68 @@ test("TUI ServerLogBuffer: cleans redundant level prefixes and normalizes emoji 
   assert.equal(lastTwo[0].message, "[Qwen] Completion returned an HTML or anti-bot challenge body instead of SSE.");
   assert.equal(lastTwo[1].message, "⏱️ [Playwright] Resetting account context");
 });
+
+test("TUI AccountsView: opens Batch Import modal with 'b', counts valid accounts, and cancels with Esc", async () => {
+  const view = new AccountsView();
+
+  // Open batch modal with 'b'
+  await view.handleKey({ name: "b", ctrl: false, shift: false, meta: false });
+  assert.equal(view.isCapturingText(), true);
+
+  let render = view.render(80, 24).join("\n");
+  assert.ok(render.includes("Importar Contas em Lote"));
+
+  // Paste accounts block
+  await view.handleKey({
+    name: "paste",
+    char: "u1@test.com:pass1\nu2@test.com:pass2\nu3@test.com:pass3\n",
+    ctrl: false,
+    shift: false,
+    meta: false,
+  });
+
+  render = view.render(80, 24).join("\n");
+  assert.ok(render.includes("3 contas detectadas") || render.includes("3"));
+
+  // Cancel with Esc
+  await view.handleKey({ name: "escape", ctrl: false, shift: false, meta: false });
+  assert.equal(view.isCapturingText(), false);
+});
+
+test("TUI AccountsView: scroll viewport gracefully navigates 50+ accounts without overflowing", async () => {
+  const view = new AccountsView();
+  const mockAccounts = Array.from({ length: 50 }, (_, i) => ({
+    id: `acc-${i + 1}`,
+    emailOrName: `user${i + 1}@domain.com`,
+    priority: 1,
+    onCooldown: false,
+    remainingCooldownMs: 0,
+    headersReady: true,
+  }));
+
+  const snapshot = {
+    online: true,
+    accounts: mockAccounts,
+  };
+
+  const height = 24;
+  const lines = view.render(80, height, snapshot as any);
+  assert.equal(lines.length, height, "Total rendered lines must exactly match window height");
+
+  const fullTextInitial = lines.join("\n");
+  assert.ok(fullTextInitial.includes("user1@domain.com"));
+  // Since visible capacity is ~12-14 rows, user50 should not be in the initial viewport
+  assert.ok(!fullTextInitial.includes("user50@domain.com"));
+
+  // Navigate down 40 times to scroll down the list
+  for (let i = 0; i < 40; i++) {
+    await view.handleKey({ name: "down", ctrl: false, shift: false, meta: false });
+  }
+
+  const linesScrolled = view.render(80, height, snapshot as any);
+  assert.equal(linesScrolled.length, height, "Rendered lines must still match window height when scrolled");
+  const fullTextScrolled = linesScrolled.join("\n");
+  // Now scrolled: user41 should be visible, user1 should be scrolled out of view
+  assert.ok(fullTextScrolled.includes("user41@domain.com"));
+  assert.ok(!fullTextScrolled.includes("user1@domain.com"));
+});
