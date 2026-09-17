@@ -20,7 +20,7 @@ import {
   handleChatCompletionsError,
   type AssistantCompleteEvent,
 } from "./streaming.ts";
-import { config, type ChatMode } from "../../core/config.ts";
+import { config, type ChatMode, normalizeChatMode } from "../../core/config.ts";
 import { logger } from "../../core/logger.ts";
 import { metrics } from "../../core/metrics.ts";
 import { getContextMeterHeaders, type ContextMeterMode } from "../../services/context-meter.ts";
@@ -50,11 +50,20 @@ function formatTimingHeader(timings: Record<string, number>): string {
  * else silently uses the configured default.
  */
 function resolveChatMode(headerValue: string | undefined): ChatMode {
-  if (headerValue === "thread" || headerValue === "temp" || headerValue === "temp-thread") {
-    return headerValue;
-  }
-  if (headerValue === "temp_thread") {
-    return "temp-thread";
+  if (headerValue) {
+    const m = headerValue.trim().toLowerCase().replace(/_/g, "-");
+    if (
+      m === "thread" ||
+      m === "thread-temp" ||
+      m === "temp-thread" ||
+      m === "stateless" ||
+      m === "stateles" ||
+      m === "stateless-temp" ||
+      m === "stateles-temp" ||
+      m === "temp"
+    ) {
+      return normalizeChatMode(m);
+    }
   }
   return config.qwen.chatMode;
 }

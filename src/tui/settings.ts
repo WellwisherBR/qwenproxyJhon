@@ -12,6 +12,7 @@ export interface TuiSettings {
   chat?: {
     model?: string;
     effort?: "high" | "medium" | "low";
+    mode?: "thread" | "thread-temp" | "stateless" | "stateless-temp";
   };
   logs?: {
     filter?: "all" | "warn" | "error";
@@ -23,6 +24,7 @@ const defaultSettings: TuiSettings = {
   chat: {
     model: "qwen3.8-max",
     effort: "high",
+    mode: "thread",
   },
   logs: {
     filter: "all",

@@ -371,6 +371,36 @@ test("TUI ChatView: selects model and its reasoning effort (F2/F3 and mouse)", a
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Effort: Low (Fast)"));
 });
+test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async () => {
+  const view = new ChatView();
+
+  // Default mode is thread (project default maintained)
+  assert.equal((view as any).selectedChatMode, "thread");
+
+  // 1. Open Mode Modal with F4
+  await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
+  let render = view.render(80, 24).join("\n");
+  assert.ok(render.includes("Selecionar Modo de Conversa"));
+  assert.ok(render.includes("thread-temp"));
+  assert.ok(render.includes("stateless-temp"));
+  assert.ok(render.includes("stateless"));
+  assert.ok(render.includes("thread (Padrão)"));
+
+  // 2. Navigate down and select thread-temp with Enter
+  await view.handleKey({ name: "down", ctrl: false, shift: false, meta: false });
+  await view.handleKey({ name: "return", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).selectedChatMode, "thread-temp");
+
+  // Verify header displays the updated mode
+  render = view.render(80, 24).join("\n");
+  assert.ok(render.includes("Modo: thread-temp"));
+
+  // 3. Re-open with F4 and cancel with Escape
+  await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).isModeModalOpen, true);
+  await view.handleKey({ name: "escape", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).isModeModalOpen, false);
+});
 
 test("TUI ChatView: supports cursor movement and in-place character insertion with Left/Right arrows", async () => {
   const view = new ChatView();

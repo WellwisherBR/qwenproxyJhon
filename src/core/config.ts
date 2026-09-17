@@ -34,7 +34,18 @@ const envSchema = z
     // temp chat (chat_mode:"local") for every request and sends the full
     // history inline (OpenAI standard). Temp chats are ephemeral and never
     // appear in the account's chat list (live-probed).
-    QWEN_CHAT_MODE: z.enum(["thread", "temp", "temp-thread"]).default("thread"),
+    QWEN_CHAT_MODE: z
+      .enum([
+        "thread",
+        "temp",
+        "temp-thread",
+        "thread-temp",
+        "stateless",
+        "stateles",
+        "stateless-temp",
+        "stateles-temp",
+      ])
+      .default("thread"),
     PLAYWRIGHT_HEADLESS: z.string().default("true"),
     PLAYWRIGHT_BROWSER: z
       .enum(["chromium", "chrome", "edge"])
@@ -362,7 +373,7 @@ export const config = {
     /** When true, all requests (personalization, models, media, chat) route exclusively through the browser page (no direct Node fetch). */
     browserOnlyFetch: env.QWEN_BROWSER_ONLY_FETCH !== "false",
     mapOpenAiModels: env.QWEN_MAP_OPENAI_MODELS !== "false",
-    chatMode: env.QWEN_CHAT_MODE,
+    chatMode: normalizeChatMode(env.QWEN_CHAT_MODE),
     maxPromptBytes: Math.max(0, parseInt(env.QWEN_MAX_PROMPT_BYTES)),
     maxPersonalizationBytes: Math.max(
       0,
@@ -388,5 +399,60 @@ export const config = {
 
 export type Config = typeof config;
 
-/** Conversation mode: thread-native reuse vs ephemeral temp chat per request vs temp-thread (ephemeral continuous session). */
-export type ChatMode = "thread" | "temp" | "temp-thread";
+/**
+ * Conversation modes:
+ * - "thread": thread-native delta (~1KB), saved in Qwen account sidebar (default)
+ * - "thread-temp" (alias "temp-thread"): thread-native delta (~1KB), ephemeral local chat (not saved)
+ * - "stateless": full history re-sent every turn (OpenAI standard), saved in Qwen account sidebar
+ * - "stateless-temp" (alias "temp"): full history re-sent every turn (OpenAI standard), ephemeral local chat (not saved)
+ */
+export type ChatMode =
+  | "thread"
+  | "thread-temp"
+  | "temp-thread"
+  | "stateless"
+  | "stateles"
+  | "stateless-temp"
+  | "stateles-temp"
+  | "temp";
+
+export function isStatelessChatMode(mode?: string | null): boolean {
+  if (!mode) return false;
+  const m = mode.trim().toLowerCase().replace(/_/g, "-");
+  return (
+    m === "stateless" ||
+    m === "stateles" ||
+    m === "stateless-temp" ||
+    m === "stateles-temp" ||
+    m === "temp"
+  );
+}
+
+export function isLocalChatMode(mode?: string | null): boolean {
+  if (!mode) return false;
+  const m = mode.trim().toLowerCase().replace(/_/g, "-");
+  return (
+    m === "stateless-temp" ||
+    m === "stateles-temp" ||
+    m === "temp" ||
+    m === "thread-temp" ||
+    m === "temp-thread"
+  );
+}
+
+export function normalizeChatMode(
+  mode?: string | null,
+): "thread" | "thread-temp" | "stateless" | "stateless-temp" {
+  if (!mode) return "thread";
+  const m = mode.trim().toLowerCase().replace(/_/g, "-");
+  if (m === "stateless-temp" || m === "stateles-temp" || m === "temp") {
+    return "stateless-temp";
+  }
+  if (m === "stateless" || m === "stateles") {
+    return "stateless";
+  }
+  if (m === "thread-temp" || m === "temp-thread") {
+    return "thread-temp";
+  }
+  return "thread";
+}

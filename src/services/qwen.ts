@@ -12,7 +12,7 @@ import {
 } from "../core/errors.ts";
 import { buildQwenRequestHeaders } from "./qwen-headers.ts";
 import { qwenOrigin, qwenUrl } from "./qwen-url.ts";
-import { config, type ChatMode } from "../core/config.ts";
+import { config, type ChatMode, isLocalChatMode } from "../core/config.ts";
 import { logger } from "../core/logger.ts";
 import { estimateTokenCount } from "../utils/context-truncation.ts";
 import type {
@@ -2757,10 +2757,7 @@ async function createQwenStreamInternal(
     chatId: chatSessionId || null,
     parentId: actualParentId ?? "",
     chat_id: chatSessionId || null,
-    chat_mode:
-      options?.chatMode === "temp" || options?.chatMode === "temp-thread"
-        ? "local"
-        : "normal",
+    chat_mode: isLocalChatMode(options?.chatMode) ? "local" : "normal",
     model: model,
     parent_id: actualParentId,
     messages: [
