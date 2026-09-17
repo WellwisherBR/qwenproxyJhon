@@ -11,7 +11,7 @@
     "src",
     "!src/tests",
     "!src/benchmarks",
-    "README.md",
+    "README*.md",
     "LICENSE"
   ],
   "scripts": {
