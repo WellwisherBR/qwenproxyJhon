@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-
+import Database from "better-sqlite3";
 import {
   syncClaudeCode,
   restoreClaudeCode,
@@ -287,17 +287,36 @@ test("syncAllClients: orchestrates discovery and records state file for rollback
   const codexPath = path.join(tmp, ".codex", "config.toml");
   const opencodePath = path.join(tmp, ".config", "opencode", "opencode.jsonc");
   const ompPath = path.join(tmp, ".omp", "agent", "models.yml");
+  const hermesPath = path.join(tmp, ".hermes", "config.yaml");
+  const openclawPath = path.join(tmp, ".openclaw", "openclaw.json");
+  const kiloPath = path.join(tmp, ".kilo", "kilo.json");
+  const clinePath = path.join(tmp, "state.vscdb");
+  const zedPath = path.join(tmp, "zed-settings.json");
+  const aiderPath = path.join(tmp, ".aider.conf.yml");
   const statePath = path.join(tmp, "sync-state.json");
 
   fs.mkdirSync(path.dirname(claudePath), { recursive: true });
   fs.mkdirSync(path.dirname(codexPath), { recursive: true });
   fs.mkdirSync(path.dirname(opencodePath), { recursive: true });
   fs.mkdirSync(path.dirname(ompPath), { recursive: true });
+  fs.mkdirSync(path.dirname(hermesPath), { recursive: true });
+  fs.mkdirSync(path.dirname(openclawPath), { recursive: true });
+  fs.mkdirSync(path.dirname(kiloPath), { recursive: true });
+  fs.mkdirSync(path.dirname(zedPath), { recursive: true });
+  fs.mkdirSync(path.dirname(aiderPath), { recursive: true });
 
+  const dbInit = new Database(clinePath);
+  dbInit.exec(`CREATE TABLE ItemTable (key TEXT, value TEXT)`);
+  dbInit.close();
   fs.writeFileSync(claudePath, JSON.stringify({ env: {}, model: "old" }), "utf-8");
   fs.writeFileSync(codexPath, `model = "old"\n[model_providers.other]\nbase_url = "http://old"`, "utf-8");
   fs.writeFileSync(opencodePath, `{\n  "provider": {}\n}`, "utf-8");
   fs.writeFileSync(ompPath, `providers:\n  other:\n    baseUrl: http://old\n`, "utf-8");
+  fs.writeFileSync(hermesPath, `model:\n  default: "old"\n`, "utf-8");
+  fs.writeFileSync(openclawPath, `{\n  "models": {}\n}`, "utf-8");
+  fs.writeFileSync(kiloPath, `{\n  "provider": {}\n}`, "utf-8");
+  fs.writeFileSync(zedPath, `{\n  "language_models": {}\n}`, "utf-8");
+  fs.writeFileSync(aiderPath, `model: old\n`, "utf-8");
 
   const syncResult = syncAllClients({
     stateFilePath: statePath,
@@ -306,6 +325,12 @@ test("syncAllClients: orchestrates discovery and records state file for rollback
       codex: codexPath,
       openCode: opencodePath,
       omp: ompPath,
+      hermes: hermesPath,
+      openClaw: openclawPath,
+      kilo: kiloPath,
+      cline: clinePath,
+      zed: zedPath,
+      aider: aiderPath,
     },
     apiKey: "sk-all-sync",
     port: 3000,
@@ -315,17 +340,28 @@ test("syncAllClients: orchestrates discovery and records state file for rollback
   assert.equal(syncResult.clients.codex?.success, true);
   assert.equal(syncResult.clients.openCode?.success, true);
   assert.equal(syncResult.clients.omp?.success, true);
+  assert.equal(syncResult.clients.hermes?.success, true);
+  assert.equal(syncResult.clients.openClaw?.success, true);
+  assert.equal(syncResult.clients.kilo?.success, true);
+  assert.equal(syncResult.clients.cline?.success, true);
+  assert.equal(syncResult.clients.zed?.success, true);
+  assert.equal(syncResult.clients.aider?.success, true);
   assert.ok(fs.existsSync(statePath));
 
-  // Verify all modified files have qwenproxy
+  // Verify modified files have qwenproxy
   assert.ok(fs.readFileSync(claudePath, "utf-8").includes("qwen3.8-max"));
   assert.ok(fs.readFileSync(codexPath, "utf-8").includes("qwenproxy"));
   assert.ok(fs.readFileSync(opencodePath, "utf-8").includes("qwenproxy"));
   assert.ok(fs.readFileSync(ompPath, "utf-8").includes("qwenproxy"));
+  assert.ok(fs.readFileSync(hermesPath, "utf-8").includes("qwenproxy"));
+  assert.ok(fs.readFileSync(openclawPath, "utf-8").includes("qwenproxy"));
+  assert.ok(fs.readFileSync(kiloPath, "utf-8").includes("qwenproxy"));
+  assert.ok(fs.readFileSync(zedPath, "utf-8").includes("QwenProxy"));
+  assert.ok(fs.readFileSync(aiderPath, "utf-8").includes("qwen3.8-max"));
 
   // Restore via state file
   const restoreResult = restoreAllClients({ stateFilePath: statePath });
-  assert.equal(restoreResult.restoredCount, 4);
+  assert.equal(restoreResult.restoredCount, 10);
 
   // Original state restored
   assert.equal(JSON.parse(fs.readFileSync(claudePath, "utf-8")).model, "old");

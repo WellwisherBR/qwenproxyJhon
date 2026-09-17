@@ -2,19 +2,26 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import Database from "better-sqlite3";
 
 import { config } from "../core/config.ts";
 import { getSyncStatePath } from "../core/paths.ts";
 import type {
   ClientSyncResult,
   SyncAllOptions,
-  SyncRecord,
+  SyncClientName,
   SyncStateFile,
 } from "./types.ts";
 import { syncClaudeCode, restoreClaudeCode } from "./claude-code.ts";
 import { syncCodex, restoreCodex } from "./codex.ts";
 import { syncOpenCode, restoreOpenCode } from "./opencode.ts";
 import { syncOmp, restoreOmp } from "./omp.ts";
+import { syncHermes, restoreHermes } from "./hermes.ts";
+import { syncOpenClaw, restoreOpenClaw } from "./openclaw.ts";
+import { syncKilo, restoreKilo } from "./kilo.ts";
+import { syncCline, restoreCline } from "./cline.ts";
+import { syncZed, restoreZed } from "./zed.ts";
+import { syncAider, restoreAider } from "./aider.ts";
 
 export function resolveApiKey(overrideKey?: string, configKey?: string): string {
   if (overrideKey && overrideKey.trim().length > 0) {
@@ -26,12 +33,29 @@ export function resolveApiKey(overrideKey?: string, configKey?: string): string 
   }
   return "sk-qwenproxy-local";
 }
-export function normalizeClientName(name: string): "claude-code" | "codex" | "opencode" | "omp" | null {
+
+export function normalizeClientName(name: string): SyncClientName | null {
   const clean = name.trim().toLowerCase().replace(/[-_ ]/g, "");
   if (clean === "claude" || clean === "claudecode" || clean === "anthropic") return "claude-code";
   if (clean === "codex" || clean === "codexcli" || clean === "openai") return "codex";
   if (clean === "opencode") return "opencode";
-  if (clean === "omp" || clean === "ohmypi") return "omp";
+  if (clean === "omp" || clean === "ohmypi" || clean === "pi") return "omp";
+  if (clean === "hermes" || clean === "hermesagent" || clean === "nous" || clean === "nousresearch") return "hermes";
+  if (clean === "openclaw" || clean === "claw" || clean === "clawdbot" || clean === "moltbot") return "openclaw";
+  if (clean === "kilo" || clean === "kilocode") return "kilo";
+  if (
+    clean === "cline" ||
+    clean === "claudedev" ||
+    clean === "zoo" ||
+    clean === "zoocode" ||
+    clean === "roo" ||
+    clean === "roocode" ||
+    clean === "roocline"
+  ) {
+    return "cline";
+  }
+  if (clean === "zed" || clean === "zededitor") return "zed";
+  if (clean === "aider" || clean === "aiderchat") return "aider";
   return null;
 }
 
@@ -51,10 +75,19 @@ export function getDefaultPaths(): {
   codex: string;
   openCode: string;
   omp: string;
+  hermes: string;
+  openClaw: string;
+  kilo: string;
+  cline: string;
+  zed: string;
+  aider: string;
 } {
   const home = os.homedir();
+  const isWindows = process.platform === "win32";
+  const isMac = process.platform === "darwin";
+  const appData = process.env.APPDATA || (isWindows ? path.join(home, "AppData", "Roaming") : "");
 
-  // OpenCode can be ~/.config/opencode/opencode.jsonc or ~/.opencode/opencode.jsonc
+  // OpenCode candidates
   const openCodeCandidates = [
     path.join(home, ".config", "opencode", "opencode.jsonc"),
     path.join(home, ".config", "opencode", "opencode.json"),
@@ -63,6 +96,33 @@ export function getDefaultPaths(): {
   ];
   const existingOpenCode = openCodeCandidates.find((p) => fs.existsSync(p));
 
+  // Kilo candidates
+  const kiloCandidates = [
+    path.join(home, ".config", "kilo", "kilo.json"),
+    path.join(home, ".kilo", "kilo.json"),
+    path.join(home, ".config", "kilo", "config.json"),
+    path.join(home, ".kilo", "config.json"),
+  ];
+  const existingKilo = kiloCandidates.find((p) => fs.existsSync(p));
+
+  // Cline state.vscdb
+  let clinePath: string;
+  if (isWindows) {
+    clinePath = path.join(appData, "Code", "User", "globalStorage", "state.vscdb");
+  } else if (isMac) {
+    clinePath = path.join(home, "Library", "Application Support", "Code", "User", "globalStorage", "state.vscdb");
+  } else {
+    clinePath = path.join(home, ".config", "Code", "User", "globalStorage", "state.vscdb");
+  }
+
+  // Zed settings.json
+  let zedPath: string;
+  if (isWindows) {
+    zedPath = path.join(appData, "Zed", "settings.json");
+  } else {
+    zedPath = path.join(home, ".config", "zed", "settings.json");
+  }
+
   return {
     claudeCode: path.join(home, ".claude", "settings.json"),
     codex: process.env.CODEX_HOME
@@ -70,14 +130,21 @@ export function getDefaultPaths(): {
       : path.join(home, ".codex", "config.toml"),
     openCode: existingOpenCode || openCodeCandidates[0],
     omp: path.join(home, ".omp", "agent", "models.yml"),
+    hermes: path.join(home, ".hermes", "config.yaml"),
+    openClaw: path.join(home, ".openclaw", "openclaw.json"),
+    kilo: existingKilo || kiloCandidates[0],
+    cline: clinePath,
+    zed: zedPath,
+    aider: path.join(home, ".aider.conf.yml"),
   };
 }
 
 export function getDefaultStateFilePath(): string {
   return getSyncStatePath();
 }
+
 export interface ClientDetectionStatus {
-  id: "claude-code" | "codex" | "opencode" | "omp";
+  id: SyncClientName;
   installed: boolean;
   synced: boolean;
   model?: string;
@@ -89,7 +156,7 @@ export interface ClientDetectionStatus {
  * and whether it is actively configured to route to QwenProxy.
  */
 export function inspectClientSyncStatus(
-  id: "claude-code" | "codex" | "opencode" | "omp",
+  id: SyncClientName,
   filePath?: string,
   port = 7936,
 ): ClientDetectionStatus {
@@ -102,13 +169,52 @@ export function inspectClientSyncStatus(
         ? defaultPaths.codex
         : id === "opencode"
           ? defaultPaths.openCode
-          : defaultPaths.omp);
+          : id === "omp"
+            ? defaultPaths.omp
+            : id === "hermes"
+              ? defaultPaths.hermes
+              : id === "openclaw"
+                ? defaultPaths.openClaw
+                : id === "kilo"
+                  ? defaultPaths.kilo
+                  : id === "cline"
+                    ? defaultPaths.cline
+                    : id === "zed"
+                      ? defaultPaths.zed
+                      : defaultPaths.aider);
 
   if (!fs.existsSync(targetPath)) {
     return { id, installed: false, synced: false };
   }
 
   try {
+    if (id === "cline") {
+      // Inspect SQLite DB
+      let isSynced = false;
+      let model: string | undefined;
+      try {
+        const db = new Database(targetPath, { readonly: true });
+        const row = db
+          .prepare(
+            `SELECT value FROM ItemTable WHERE key = 'saoudrizwan.claude-dev' OR key = 'ZooCodeOrganization.zoo-code' LIMIT 1`,
+          )
+          .get() as { value: string } | undefined;
+        db.close();
+        if (row && row.value) {
+          const parsed = JSON.parse(row.value);
+          const url = parsed.openAiBaseUrl || "";
+          model = parsed.openAiModelId;
+          isSynced = Boolean(
+            url &&
+              (url.includes(String(port)) ||
+                url.includes(`127.0.0.1:${port}`) ||
+                url.includes(`localhost:${port}`)),
+          );
+        }
+      } catch {}
+      return { id, installed: true, synced: isSynced, model };
+    }
+
     const raw = fs.readFileSync(targetPath, "utf-8");
 
     if (id === "claude-code") {
@@ -198,6 +304,51 @@ export function inspectClientSyncStatus(
         url,
       };
     }
+
+    if (id === "hermes") {
+      const isLocalHost =
+        raw.includes(String(port)) ||
+        raw.includes(`127.0.0.1:${port}`) ||
+        raw.includes(`localhost:${port}`);
+      const isSynced = isLocalHost && (raw.includes("qwenproxy") || raw.includes("qwen"));
+      return { id, installed: true, synced: isSynced };
+    }
+
+    if (id === "openclaw") {
+      const isLocalHost =
+        raw.includes(String(port)) ||
+        raw.includes(`127.0.0.1:${port}`) ||
+        raw.includes(`localhost:${port}`);
+      const isSynced = isLocalHost && raw.includes("qwenproxy");
+      return { id, installed: true, synced: isSynced };
+    }
+
+    if (id === "kilo") {
+      const isLocalHost =
+        raw.includes(String(port)) ||
+        raw.includes(`127.0.0.1:${port}`) ||
+        raw.includes(`localhost:${port}`);
+      const isSynced = isLocalHost && raw.includes("qwenproxy");
+      return { id, installed: true, synced: isSynced };
+    }
+
+    if (id === "zed") {
+      const isLocalHost =
+        raw.includes(String(port)) ||
+        raw.includes(`127.0.0.1:${port}`) ||
+        raw.includes(`localhost:${port}`);
+      const isSynced = isLocalHost && raw.includes("QwenProxy");
+      return { id, installed: true, synced: isSynced };
+    }
+
+    if (id === "aider") {
+      const isLocalHost =
+        raw.includes(String(port)) ||
+        raw.includes(`127.0.0.1:${port}`) ||
+        raw.includes(`localhost:${port}`);
+      const isSynced = isLocalHost && raw.includes("qwen");
+      return { id, installed: true, synced: isSynced };
+    }
   } catch {
     return { id, installed: true, synced: false };
   }
@@ -214,6 +365,12 @@ export interface SyncAllResult {
     codex?: ClientSyncResult;
     openCode?: ClientSyncResult;
     omp?: ClientSyncResult;
+    hermes?: ClientSyncResult;
+    openClaw?: ClientSyncResult;
+    kilo?: ClientSyncResult;
+    cline?: ClientSyncResult;
+    zed?: ClientSyncResult;
+    aider?: ClientSyncResult;
   };
 }
 
@@ -224,6 +381,12 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
     codex: options.customPaths?.codex || defaultPaths.codex,
     openCode: options.customPaths?.openCode || defaultPaths.openCode,
     omp: options.customPaths?.omp || defaultPaths.omp,
+    hermes: options.customPaths?.hermes || defaultPaths.hermes,
+    openClaw: options.customPaths?.openClaw || defaultPaths.openClaw,
+    kilo: options.customPaths?.kilo || defaultPaths.kilo,
+    cline: options.customPaths?.cline || defaultPaths.cline,
+    zed: options.customPaths?.zed || defaultPaths.zed,
+    aider: options.customPaths?.aider || defaultPaths.aider,
   };
 
   const port = options.port ?? (config.server?.port || 7936);
@@ -241,7 +404,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
   };
 
   const stateRecords: SyncStateFile["clients"] = {};
-  const shouldSync = (client: "claude-code" | "codex" | "opencode" | "omp") => {
+  const shouldSync = (client: SyncClientName) => {
     if (!options.targets || options.targets.length === 0) return true;
     return options.targets.includes(client);
   };
@@ -323,6 +486,122 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
     }
   }
 
+  // 5. Hermes Agent
+  if (shouldSync("hermes")) {
+    const hermesExisted = fs.existsSync(paths.hermes);
+    const hermesRes = syncHermes({
+      filePath: paths.hermes,
+      apiKey,
+      baseUrl: openaiBaseUrl,
+    });
+    results.clients.hermes = hermesRes;
+    if (hermesRes.success && hermesRes.backupPath) {
+      stateRecords.hermes = {
+        filePath: paths.hermes,
+        backupPath: hermesRes.backupPath,
+        existedBefore: hermesExisted,
+        syncedAt: Date.now(),
+      };
+    }
+  }
+
+  // 6. OpenClaw
+  if (shouldSync("openclaw")) {
+    const openClawExisted = fs.existsSync(paths.openClaw);
+    const openClawRes = syncOpenClaw({
+      filePath: paths.openClaw,
+      apiKey,
+      baseUrl: openaiBaseUrl,
+    });
+    results.clients.openClaw = openClawRes;
+    if (openClawRes.success && openClawRes.backupPath) {
+      stateRecords.openClaw = {
+        filePath: paths.openClaw,
+        backupPath: openClawRes.backupPath,
+        existedBefore: openClawExisted,
+        syncedAt: Date.now(),
+      };
+    }
+  }
+
+  // 7. Kilo Code
+  if (shouldSync("kilo")) {
+    const kiloExisted = fs.existsSync(paths.kilo);
+    const kiloRes = syncKilo({
+      filePath: paths.kilo,
+      apiKey,
+      baseUrl: openaiBaseUrl,
+      setActive: options.setActive ?? true,
+    });
+    results.clients.kilo = kiloRes;
+    if (kiloRes.success && kiloRes.backupPath) {
+      stateRecords.kilo = {
+        filePath: paths.kilo,
+        backupPath: kiloRes.backupPath,
+        existedBefore: kiloExisted,
+        syncedAt: Date.now(),
+      };
+    }
+  }
+
+  // 8. Cline & Zoo Code
+  if (shouldSync("cline")) {
+    const clineExisted = fs.existsSync(paths.cline);
+    const clineRes = syncCline({
+      filePath: paths.cline,
+      apiKey,
+      baseUrl: openaiBaseUrl,
+    });
+    results.clients.cline = clineRes;
+    if (clineRes.success && clineRes.backupPath) {
+      stateRecords.cline = {
+        filePath: paths.cline,
+        backupPath: clineRes.backupPath,
+        existedBefore: clineExisted,
+        syncedAt: Date.now(),
+      };
+    }
+  }
+
+  // 9. Zed Editor
+  if (shouldSync("zed")) {
+    const zedExisted = fs.existsSync(paths.zed);
+    const zedRes = syncZed({
+      filePath: paths.zed,
+      apiKey,
+      baseUrl: openaiBaseUrl,
+      setActive: options.setActive ?? true,
+    });
+    results.clients.zed = zedRes;
+    if (zedRes.success && zedRes.backupPath) {
+      stateRecords.zed = {
+        filePath: paths.zed,
+        backupPath: zedRes.backupPath,
+        existedBefore: zedExisted,
+        syncedAt: Date.now(),
+      };
+    }
+  }
+
+  // 10. Aider
+  if (shouldSync("aider")) {
+    const aiderExisted = fs.existsSync(paths.aider);
+    const aiderRes = syncAider({
+      filePath: paths.aider,
+      apiKey,
+      baseUrl: openaiBaseUrl,
+    });
+    results.clients.aider = aiderRes;
+    if (aiderRes.success && aiderRes.backupPath) {
+      stateRecords.aider = {
+        filePath: paths.aider,
+        backupPath: aiderRes.backupPath,
+        existedBefore: aiderExisted,
+        syncedAt: Date.now(),
+      };
+    }
+  }
+
   // Persist sync state
   try {
     fs.mkdirSync(path.dirname(stateFilePath), { recursive: true });
@@ -380,6 +659,42 @@ export function restoreAllClients(options: { stateFilePath?: string } = {}): Res
 
     if (state.clients.omp?.backupPath) {
       const res = restoreOmp(state.clients.omp.filePath, state.clients.omp.backupPath);
+      details.push(res);
+      if (res.success) restoredCount++;
+    }
+
+    if (state.clients.hermes?.backupPath) {
+      const res = restoreHermes(state.clients.hermes.filePath, state.clients.hermes.backupPath);
+      details.push(res);
+      if (res.success) restoredCount++;
+    }
+
+    if (state.clients.openClaw?.backupPath) {
+      const res = restoreOpenClaw(state.clients.openClaw.filePath, state.clients.openClaw.backupPath);
+      details.push(res);
+      if (res.success) restoredCount++;
+    }
+
+    if (state.clients.kilo?.backupPath) {
+      const res = restoreKilo(state.clients.kilo.filePath, state.clients.kilo.backupPath);
+      details.push(res);
+      if (res.success) restoredCount++;
+    }
+
+    if (state.clients.cline?.backupPath) {
+      const res = restoreCline(state.clients.cline.filePath, state.clients.cline.backupPath);
+      details.push(res);
+      if (res.success) restoredCount++;
+    }
+
+    if (state.clients.zed?.backupPath) {
+      const res = restoreZed(state.clients.zed.filePath, state.clients.zed.backupPath);
+      details.push(res);
+      if (res.success) restoredCount++;
+    }
+
+    if (state.clients.aider?.backupPath) {
+      const res = restoreAider(state.clients.aider.filePath, state.clients.aider.backupPath);
       details.push(res);
       if (res.success) restoredCount++;
     }
