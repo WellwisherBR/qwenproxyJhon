@@ -1569,9 +1569,9 @@ test("TUI AccountsView: opens Batch Import modal with 'b', counts valid accounts
   assert.ok(!render.includes("(linha vazia)"));
   assert.ok(render.includes("Nenhuma conta colada ainda"));
 
-  // Initial selection is on Importar
-  assert.equal((view as any).batchActiveButton, "import");
-
+  // Initially, neither button is selected (focus is in text area, no purple box)
+  assert.equal((view as any).batchActiveButton, null);
+  assert.equal((view as any).batchHoveredButton, null);
   // Tab switches selection to Cancelar
   await view.handleKey({ name: "tab", ctrl: false, shift: false, meta: false });
   assert.equal((view as any).batchActiveButton, "cancel");

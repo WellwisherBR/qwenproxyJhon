@@ -64,7 +64,7 @@ export class AccountsView implements TuiView {
   private batchInput = "";
   private batchCursor = 0;
   private batchHoveredButton: "import" | "cancel" | null = null;
-  private batchActiveButton: "import" | "cancel" = "import";
+  private batchActiveButton: "import" | "cancel" | null = null;
   private lastBatchModalLeftPad = 0;
   private lastBatchModalStartRow = 4;
   private hoveredActionRow: number | null = null;
@@ -204,7 +204,7 @@ export class AccountsView implements TuiView {
       this.isBatchModalOpen = false;
       this.batchInput = "";
       this.batchCursor = 0;
-      this.batchActiveButton = "import";
+      this.batchActiveButton = null;
       this.batchHoveredButton = null;
       await this.refresh();
 
@@ -311,14 +311,18 @@ export class AccountsView implements TuiView {
         this.isBatchModalOpen = false;
         this.batchInput = "";
         this.batchCursor = 0;
-        this.batchActiveButton = "import";
+        this.batchActiveButton = null;
         this.batchHoveredButton = null;
         return true;
       }
 
       // Keyboard button selection navigation
       if (key.name === "tab" || key.name === "left" || key.name === "right") {
-        this.batchActiveButton = this.batchActiveButton === "import" ? "cancel" : "import";
+        if (this.batchActiveButton === null) {
+          this.batchActiveButton = "cancel";
+        } else {
+          this.batchActiveButton = this.batchActiveButton === "import" ? "cancel" : "import";
+        }
         this.batchHoveredButton = null;
         return true;
       }
@@ -363,7 +367,7 @@ export class AccountsView implements TuiView {
             this.isBatchModalOpen = false;
             this.batchInput = "";
             this.batchCursor = 0;
-            this.batchActiveButton = "import";
+            this.batchActiveButton = null;
             this.batchHoveredButton = null;
             return true;
           }
@@ -379,7 +383,7 @@ export class AccountsView implements TuiView {
             pasted +
             this.batchInput.slice(this.batchCursor);
           this.batchCursor += pasted.length;
-          this.batchActiveButton = "import";
+          this.batchActiveButton = null;
           return true;
         }
       }
@@ -401,7 +405,6 @@ export class AccountsView implements TuiView {
         }
         return true;
       }
-
       // Delete
       if (key.name === "delete") {
         if (this.batchCursor < this.batchInput.length) {
@@ -419,7 +422,7 @@ export class AccountsView implements TuiView {
           this.isBatchModalOpen = false;
           this.batchInput = "";
           this.batchCursor = 0;
-          this.batchActiveButton = "import";
+          this.batchActiveButton = null;
           this.batchHoveredButton = null;
           return true;
         }
@@ -654,7 +657,7 @@ export class AccountsView implements TuiView {
       this.isBatchModalOpen = true;
       this.batchInput = "";
       this.batchCursor = 0;
-      this.batchActiveButton = "import";
+      this.batchActiveButton = null;
       this.batchHoveredButton = null;
       return true;
     }
@@ -1081,19 +1084,17 @@ export class AccountsView implements TuiView {
 
       const importLabel = " [ Enter ] Importar ";
       const cancelLabel = " [ Esc ] Cancelar ";
-
       const importBtn = isImportHovered
-        ? theme.bgHover(theme.bold(importLabel))
+        ? theme.bgHover(theme.green(importLabel))
         : isImportSelected
-        ? theme.bgSelected(theme.bold(importLabel))
+        ? theme.bgSelected(theme.green(importLabel))
         : theme.green(importLabel);
 
       const cancelBtn = isCancelHovered
-        ? theme.bgHover(theme.bold(cancelLabel))
+        ? theme.bgHover(theme.red(cancelLabel))
         : isCancelSelected
-        ? theme.bgSelected(theme.bold(cancelLabel))
+        ? theme.bgSelected(theme.red(cancelLabel))
         : theme.muted(cancelLabel);
-
       const modalContent = [
         "",
         `  ${theme.bold("Cole suas contas")} ${theme.dim("(email:senha, uma por linha ou formato .env)")}:`,
