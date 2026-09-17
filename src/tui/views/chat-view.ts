@@ -381,8 +381,9 @@ export class ChatView implements TuiView {
     if (this.isModeModalOpen) {
       if (key.name === "hover" && key.mouse) {
         const { row } = key.mouse;
-        if (row >= 9 && row < 9 + this.availableModes.length) {
-          const hoverIdx = row - 9;
+        const startRow = 11;
+        if (row >= startRow && row < startRow + this.availableModes.length) {
+          const hoverIdx = row - startRow;
           if (this.modeSelectedIndex !== hoverIdx) {
             this.modeSelectedIndex = hoverIdx;
             this.onNeedsRender?.();
@@ -392,8 +393,9 @@ export class ChatView implements TuiView {
       }
       if (key.name === "click" && key.mouse) {
         const { row } = key.mouse;
-        if (row >= 9 && row < 9 + this.availableModes.length) {
-          this.selectedChatMode = this.availableModes[row - 9].id;
+        const startRow = 11;
+        if (row >= startRow && row < startRow + this.availableModes.length) {
+          this.selectedChatMode = this.availableModes[row - startRow].id;
           this.isModeModalOpen = false;
           saveTuiSettings({
             chat: {
@@ -402,7 +404,7 @@ export class ChatView implements TuiView {
               mode: this.selectedChatMode,
             },
           });
-          this.statusNote = `Modo: ${this.availableModes[row - 9].label}`;
+          this.statusNote = `Modo: ${this.availableModes[row - startRow].label}`;
           this.onNeedsRender?.();
           return true;
         }
@@ -1026,7 +1028,7 @@ export class ChatView implements TuiView {
         const isCurrent = m.id === this.selectedChatMode;
         const pointer = isSel ? theme.cyan("▸ ") : "  ";
         const radio = isCurrent ? theme.green(glyphs.radioOn) : theme.muted(glyphs.radioOff);
-        const line = `${pointer}${radio} ${m.badge} ${pad(m.label, 16)} • ${m.desc}`;
+        const line = `${pointer}${radio} ${pad(m.badge, 17)} ${pad(m.label, 17)} • ${m.desc}`;
         modalLines.push(isSel ? theme.bgSelected(line) : line);
       }
       modalLines.push("");
@@ -1074,7 +1076,6 @@ export class ChatView implements TuiView {
           if (msg.reasoning && msg.reasoning.trim().length > 0) {
             const thinkWidth = Math.max(20, innerChatW - 4);
             let thinkLines: string[];
-
             if (msg.cachedWidth === innerChatW && msg.cachedReasoningBox) {
               thinkLines = msg.cachedReasoningBox;
             } else {

@@ -395,7 +395,73 @@ test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async ()
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Modo: thread-temp"));
 
-  // 3. Re-open with F4 and cancel with Escape
+  // 3. Test mouse hover and selection on all 4 mode rows
+  // Row 11 is thread (index 0)
+  await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).isModeModalOpen, true);
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: 15, row: 11 },
+  });
+  assert.equal((view as any).modeSelectedIndex, 0);
+
+  // Row 12 is thread-temp (index 1)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: 15, row: 12 },
+  });
+  assert.equal((view as any).modeSelectedIndex, 1);
+
+  // Row 13 is stateless-temp (index 2)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: 15, row: 13 },
+  });
+  assert.equal((view as any).modeSelectedIndex, 2);
+
+  // Row 14 is stateless (index 3)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: 15, row: 14 },
+  });
+  assert.equal((view as any).modeSelectedIndex, 3);
+
+  // Click on Row 13 selects stateless-temp
+  await view.handleKey({
+    name: "click",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "click", button: "left", col: 15, row: 13 },
+  });
+  assert.equal((view as any).isModeModalOpen, false);
+  assert.equal((view as any).selectedChatMode, "stateless-temp");
+
+  // Re-open with F4 and click on Row 11 selects thread
+  await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
+  await view.handleKey({
+    name: "click",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "click", button: "left", col: 15, row: 11 },
+  });
+  assert.equal((view as any).isModeModalOpen, false);
+  assert.equal((view as any).selectedChatMode, "thread");
+
+  // 4. Cancel with Escape
   await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
   assert.equal((view as any).isModeModalOpen, true);
   await view.handleKey({ name: "escape", ctrl: false, shift: false, meta: false });
