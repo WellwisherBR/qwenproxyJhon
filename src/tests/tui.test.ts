@@ -176,6 +176,22 @@ test("TUI SyncView: handles keyboard toggles and model selection", async () => {
   assert.ok(toggledLines.includes(glyphs.checkOn));
 });
 
+test("TUI SyncView: displays all 10 clients and handles full navigation", async () => {
+  const view = new SyncView();
+  const render = view.render(90, 26).join("\n");
+
+  assert.ok(render.includes("Hermes Agent"));
+  assert.ok(render.includes("OpenCode"));
+  assert.ok(render.includes("Claude Code"));
+  assert.ok(render.includes("OpenClaw"));
+  assert.ok(render.includes("Kilo Code"));
+  assert.ok(render.includes("Cline & Zoo"));
+  assert.ok(render.includes("OMP (Oh My Pi)"));
+  assert.ok(render.includes("Codex CLI"));
+  assert.ok(render.includes("Zed Editor"));
+  assert.ok(render.includes("Aider"));
+});
+
 test("TUI AccountsView: navigates accounts and provides cooldown actions", async () => {
   const view = new AccountsView();
   assert.equal(view.id, "accounts");
@@ -961,7 +977,7 @@ test("TUI SyncView: mouse click precisely toggles clients, model, and scope", as
   const view = new SyncView();
   view.render(80, 24);
 
-  // Click row 8 (Claude Code) -> toggles to selected [x]
+  // Click row 8 (First client) -> toggles to selected [x]
   await view.handleKey({
     name: "click",
     ctrl: false,
@@ -972,50 +988,50 @@ test("TUI SyncView: mouse click precisely toggles clients, model, and scope", as
   let render = view.render(80, 24).join("\n");
   assert.ok(render.includes(glyphs.checkOn));
 
-  // Click row 14 (Model selector) -> cycles to next model
+  // Click row 20 (Model selector) -> cycles to next model
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 10, row: 14 },
+    mouse: { type: "click", button: "left", col: 10, row: 20 },
   });
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes("qwen3.7-plus"));
 
-  // Click row 15 (Scope selector) -> toggles syncAllModels
+  // Click row 21 (Scope selector) -> toggles syncAllModels
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 10, row: 15 },
+    mouse: { type: "click", button: "left", col: 10, row: 21 },
   });
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes(glyphs.radioOff));
   // Verify there is no duplicate "Modelo: Modelo:"
   assert.ok(!render.includes("Modelo: Modelo:"));
-  // Click row 18 ([ Enter ] Sincronizar)
+  // Click row 24 ([ Enter ] Sincronizar)
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 10, row: 18 },
+    mouse: { type: "click", button: "left", col: 10, row: 24 },
   });
   render = view.render(80, 24).join("\n");
-  assert.equal((view as any).selectedRowIndex, 6);
+  assert.equal((view as any).selectedRowIndex, 12);
 
-  // Click row 19 ([ R ] Restaurar)
+  // Click row 25 ([ R ] Restaurar)
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 10, row: 19 },
+    mouse: { type: "click", button: "left", col: 10, row: 25 },
   });
   render = view.render(80, 24).join("\n");
-  assert.equal((view as any).selectedRowIndex, 7);
+  assert.equal((view as any).selectedRowIndex, 13);
 });
 
 test("TUI AccountsView: precision mouse click on right panel action buttons", async () => {

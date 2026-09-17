@@ -11,10 +11,11 @@ import {
   getDefaultPaths,
   inspectClientSyncStatus,
 } from "../../sync/index.ts";
+import type { SyncClientName } from "../../sync/types.ts";
 import { fetchLiveModels } from "../proxy-client.ts";
 
 interface ClientOption {
-  id: "claude-code" | "codex" | "opencode" | "omp";
+  id: SyncClientName;
   name: string;
   path: string;
   selected: boolean;
@@ -27,7 +28,7 @@ export class SyncView implements TuiView {
   public readonly title = "Sync";
   public readonly tabNumber = 3;
   private clients: ClientOption[] = [];
-  private selectedRowIndex = 0; // 0..3 for clients, 4 for model, 5 for scope, 6 for sync, 7 for restore
+  private selectedRowIndex = 0; // 0..9 for clients, 10 for model, 11 for scope, 12 for sync, 13 for restore
   private hoveredActionRow: number | null = null;
   private availableModels = [
     "qwen3.8-max",
@@ -60,11 +61,17 @@ export class SyncView implements TuiView {
 
   private detectClients(): void {
     const paths = getDefaultPaths();
-    const defs: Array<{ id: "claude-code" | "codex" | "opencode" | "omp"; name: string; path: string }> = [
-      { id: "claude-code", name: "Claude Code", path: paths.claudeCode },
-      { id: "codex", name: "OpenAI Codex", path: paths.codex },
+    const defs: Array<{ id: SyncClientName; name: string; path: string }> = [
+      { id: "hermes", name: "Hermes Agent", path: paths.hermes },
       { id: "opencode", name: "OpenCode", path: paths.openCode },
+      { id: "claude-code", name: "Claude Code", path: paths.claudeCode },
+      { id: "openclaw", name: "OpenClaw", path: paths.openClaw },
+      { id: "kilo", name: "Kilo Code", path: paths.kilo },
+      { id: "cline", name: "Cline & Zoo", path: paths.cline },
       { id: "omp", name: "OMP (Oh My Pi)", path: paths.omp },
+      { id: "codex", name: "Codex CLI", path: paths.codex },
+      { id: "zed", name: "Zed Editor", path: paths.zed },
+      { id: "aider", name: "Aider", path: paths.aider },
     ];
 
     this.clients = defs.map((d) => {
@@ -96,23 +103,23 @@ export class SyncView implements TuiView {
       const { row, col } = key.mouse;
       const leftW = this.lastLeftW || 46;
       if (col >= 2 && col <= leftW - 1) {
-        if (row >= 8 && row <= 11) {
+        if (row >= 8 && row <= 17) {
           const targetRow = row - 8;
           if (this.selectedRowIndex !== targetRow) {
             this.selectedRowIndex = targetRow;
             return true;
           }
-        } else if (row === 14) {
-          if (this.selectedRowIndex !== 4) {
-            this.selectedRowIndex = 4;
+        } else if (row === 20 || row === 14) {
+          if (this.selectedRowIndex !== 10) {
+            this.selectedRowIndex = 10;
             return true;
           }
-        } else if (row === 15) {
-          if (this.selectedRowIndex !== 5) {
-            this.selectedRowIndex = 5;
+        } else if (row === 21 || row === 15) {
+          if (this.selectedRowIndex !== 11) {
+            this.selectedRowIndex = 11;
             return true;
           }
-        } else if (row === 18 || row === 19) {
+        } else if (row === 24 || row === 18 || row === 25 || row === 19) {
           if (this.hoveredActionRow !== row) {
             this.hoveredActionRow = row;
             return true;
@@ -132,8 +139,8 @@ export class SyncView implements TuiView {
       const { row, col } = key.mouse;
       const leftW = this.lastLeftW || 46;
       if (col >= 2 && col <= leftW - 1) {
-        // Rows 8, 9, 10, 11: Toggle client
-        if (row >= 8 && row <= 11) {
+        // Rows 8..17: Toggle client
+        if (row >= 8 && row <= 17) {
           const client = this.clients[row - 8];
           if (client) {
             client.selected = !client.selected;
@@ -141,27 +148,27 @@ export class SyncView implements TuiView {
             return true;
           }
         }
-        // Row 14: Model selector
-        if (row === 14) {
+        // Model selector
+        if (row === 20 || row === 14) {
           this.modelIndex = (this.modelIndex + 1) % this.availableModels.length;
-          this.selectedRowIndex = 4;
+          this.selectedRowIndex = 10;
           return true;
         }
-        // Row 15: Scope selector
-        if (row === 15) {
+        // Scope selector
+        if (row === 21 || row === 15) {
           this.syncAllModels = !this.syncAllModels;
-          this.selectedRowIndex = 5;
+          this.selectedRowIndex = 11;
           return true;
         }
-        // Row 18: Sincronizar button
-        if (row === 18) {
-          this.selectedRowIndex = 6;
+        // Sincronizar button
+        if (row === 24 || row === 18) {
+          this.selectedRowIndex = 12;
           this.executeSync();
           return true;
         }
-        // Row 19: Restaurar button
-        if (row === 19) {
-          this.selectedRowIndex = 7;
+        // Restaurar button
+        if (row === 25 || row === 19) {
+          this.selectedRowIndex = 13;
           this.executeRollback();
           return true;
         }
@@ -174,28 +181,28 @@ export class SyncView implements TuiView {
       return true;
     }
     if (key.name === "down" || key.name === "wheeldown" || (key.name === "j" && !key.ctrl)) {
-      this.selectedRowIndex = Math.min(7, this.selectedRowIndex + 1);
+      this.selectedRowIndex = Math.min(13, this.selectedRowIndex + 1);
       return true;
     }
 
     // Toggle client selection with Space
     if (key.name === "space") {
-      if (this.selectedRowIndex < 4) {
+      if (this.selectedRowIndex < this.clients.length) {
         const client = this.clients[this.selectedRowIndex];
         if (client) {
           client.selected = !client.selected;
         }
-      } else if (this.selectedRowIndex === 4) {
+      } else if (this.selectedRowIndex === 10) {
         // Cycle model with space
         this.modelIndex = (this.modelIndex + 1) % this.availableModels.length;
-      } else if (this.selectedRowIndex === 5) {
+      } else if (this.selectedRowIndex === 11) {
         this.syncAllModels = !this.syncAllModels;
       }
       return true;
     }
 
-    // Cycle model left/right on row 4
-    if (this.selectedRowIndex === 4 && (key.name === "left" || key.name === "right")) {
+    // Cycle model left/right on row 10
+    if (this.selectedRowIndex === 10 && (key.name === "left" || key.name === "right")) {
       if (key.name === "left") {
         this.modelIndex =
           (this.modelIndex - 1 + this.availableModels.length) %
@@ -205,7 +212,6 @@ export class SyncView implements TuiView {
       }
       return true;
     }
-
     // Toggle all with 'a'
     if (key.name === "a" && !key.ctrl) {
       const allSelected = this.clients.every((c) => c.selected);
@@ -226,7 +232,7 @@ export class SyncView implements TuiView {
 
     // Confirm action on Enter
     if (key.name === "return") {
-      if (this.selectedRowIndex === 7) {
+      if (this.selectedRowIndex === 13) {
         this.executeRollback();
       } else {
         this.executeSync();
@@ -289,8 +295,8 @@ export class SyncView implements TuiView {
   }
 
   public render(width: number, height: number): string[] {
-    const contentH = Math.max(12, height);
-    const leftW = Math.max(46, Math.floor(width * 0.52));
+    const contentH = Math.max(22, height);
+    const leftW = Math.max(48, Math.floor(width * 0.52));
     this.lastLeftW = leftW;
     const rightW = Math.max(30, width - leftW - 1);
 
@@ -323,8 +329,8 @@ export class SyncView implements TuiView {
     leftContent.push("");
     leftContent.push(`  ${theme.bold("Modelo:")}`);
 
-    // Row index 4: Model Selector
-    const isModelFocused = this.selectedRowIndex === 4;
+    // Row index 10: Model Selector
+    const isModelFocused = this.selectedRowIndex === 10;
     const modelPointer = isModelFocused ? theme.cyan(`${glyphs.pointer} `) : "  ";
     const currentModel = this.availableModels[this.modelIndex] || "qwen3.8-max";
     const modelText = `${currentModel} (${this.modelIndex + 1}/${this.availableModels.length})`;
@@ -335,23 +341,23 @@ export class SyncView implements TuiView {
 
     leftContent.push(isModelFocused ? theme.bgSelected(modelLine) : modelLine);
 
-    // Row index 5: Scope Selector
-    const isScopeFocused = this.selectedRowIndex === 5;
+    // Row index 11: Scope Selector
+    const isScopeFocused = this.selectedRowIndex === 11;
     const scopePointer = isScopeFocused ? theme.cyan(`${glyphs.pointer} `) : "  ";
     const scopeCheck = this.syncAllModels ? theme.green(glyphs.radioOn) : theme.muted(glyphs.radioOff);
     const scopeLine = `${scopePointer}${scopeCheck} Registrar todos os modelos`;
     leftContent.push(isScopeFocused ? theme.bgSelected(scopeLine) : scopeLine);
     leftContent.push("");
     leftContent.push(`  ${theme.bold("Ações:")}`);
-    // Row 18: Sincronizar
-    const isSyncFocused = this.selectedRowIndex === 6;
-    const isSyncHovered = this.hoveredActionRow === 18;
+    // Row index 12: Sincronizar
+    const isSyncFocused = this.selectedRowIndex === 12;
+    const isSyncHovered = this.hoveredActionRow === 24 || this.hoveredActionRow === 18;
     const syncLine = `    ${isSyncHovered || isSyncFocused ? theme.bgHover(` ${theme.cyan("[ Enter ] Sincronizar")} `) : `${theme.cyan("[ Enter ]")} Sincronizar`}`;
     leftContent.push(syncLine);
 
-    // Row 19: Restaurar
-    const isRestoreFocused = this.selectedRowIndex === 7;
-    const isRestoreHovered = this.hoveredActionRow === 19;
+    // Row index 13: Restaurar
+    const isRestoreFocused = this.selectedRowIndex === 13;
+    const isRestoreHovered = this.hoveredActionRow === 25 || this.hoveredActionRow === 19;
     const restoreLine = `    ${isRestoreHovered || isRestoreFocused ? theme.bgHover(` ${theme.yellow("[ R ] Restaurar")} `) : `${theme.yellow("[ R ]")} Restaurar`}`;
     leftContent.push(restoreLine);
 
