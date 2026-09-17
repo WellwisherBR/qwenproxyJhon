@@ -209,6 +209,40 @@ export function isMatchingLocalHost(text: string, port = 7936): boolean {
   return isLocal && Array.from(ports).some((p) => text.includes(`:${p}`));
 }
 
+export function isClientToolInstalled(
+  id: SyncClientName,
+  targetPath: string,
+  isCustomTestPath = false,
+): boolean {
+  if (isCustomTestPath) {
+    return fs.existsSync(targetPath);
+  }
+  switch (id) {
+    case "hermes":
+      return isExecutableInPath("hermes");
+    case "openclaw":
+      return isExecutableInPath("openclaw") || isExecutableInPath("clawdbot") || isExecutableInPath("moltbot");
+    case "aider":
+      return isExecutableInPath("aider");
+    case "kilo":
+      return isExecutableInPath("kilo") || isVscodeExtensionInstalled(/kilo/i);
+    case "cline":
+      return isExecutableInPath("cline") || isVscodeExtensionInstalled(/cline|zoo-code|roo-cline/i);
+    case "zed":
+      return isZedInstalled();
+    case "claude-code":
+      return isExecutableInPath("claude") || fs.existsSync(targetPath);
+    case "codex":
+      return isExecutableInPath("codex") || fs.existsSync(targetPath);
+    case "opencode":
+      return isExecutableInPath("opencode") || fs.existsSync(targetPath);
+    case "omp":
+      return isExecutableInPath("omp") || fs.existsSync(targetPath);
+    default:
+      return fs.existsSync(targetPath);
+  }
+}
+
 /**
  * Inspects a client configuration file to determine whether the client is installed
  * and whether it is actively configured to route to QwenProxy.
@@ -219,57 +253,19 @@ export function inspectClientSyncStatus(
   port = 7936,
 ): ClientDetectionStatus {
   const defaultPaths = getDefaultPaths();
-  const isCustomPath = Boolean(filePath);
-  const targetPath =
-    filePath ||
-    (id === "claude-code"
-      ? defaultPaths.claudeCode
-      : id === "codex"
-        ? defaultPaths.codex
-        : id === "opencode"
-          ? defaultPaths.openCode
-          : id === "omp"
-            ? defaultPaths.omp
-            : id === "hermes"
-              ? defaultPaths.hermes
-              : id === "openclaw"
-                ? defaultPaths.openClaw
-                : id === "kilo"
-                  ? defaultPaths.kilo
-                  : id === "cline"
-                    ? defaultPaths.cline
-                    : id === "zed"
-                      ? defaultPaths.zed
-                      : defaultPaths.aider);
+  const defaultTarget = (defaultPaths as Record<string, string>)[id] || "";
+  const isCustomTestPath = Boolean(
+    filePath && defaultTarget && path.resolve(filePath) !== path.resolve(defaultTarget),
+  );
+  const targetPath = filePath || defaultTarget;
 
   if (!fs.existsSync(targetPath)) {
     return { id, installed: false, synced: false };
   }
 
-  // For live checks (when no custom test path is provided), verify binary/package presence
-  // to avoid false "installed" detections on stray/abandoned config files.
-  if (!isCustomPath) {
-    if (id === "hermes" && !isExecutableInPath("hermes")) {
-      return { id, installed: false, synced: false };
-    }
-    if (
-      id === "openclaw" &&
-      !isExecutableInPath("openclaw") &&
-      !isExecutableInPath("clawdbot") &&
-      !isExecutableInPath("moltbot")
-    ) {
-      return { id, installed: false, synced: false };
-    }
-    if (id === "aider" && !isExecutableInPath("aider")) {
-      return { id, installed: false, synced: false };
-    }
-    if (
-      id === "kilo" &&
-      !isExecutableInPath("kilo") &&
-      !isVscodeExtensionInstalled(/kilo/i)
-    ) {
-      return { id, installed: false, synced: false };
-    }
+  const toolInstalled = isClientToolInstalled(id, targetPath, isCustomTestPath);
+  if (!toolInstalled) {
+    return { id, installed: false, synced: false };
   }
 
   try {
@@ -294,7 +290,7 @@ export function inspectClientSyncStatus(
         }
       } catch {}
 
-      const isInstalled = isCustomPath
+      const isInstalled = isCustomTestPath
         ? true
         : rowExists || isExecutableInPath("cline") || isVscodeExtensionInstalled(/cline|zoo-code|roo-cline/i);
 
