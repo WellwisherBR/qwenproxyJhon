@@ -3342,6 +3342,14 @@ export function isPlaywrightInitialized(accountId: string): boolean {
   return accountPages.has(accountId);
 }
 
+export function isAccountRecentlyActive(
+  accountId: string,
+  maxIdleMs = 300_000,
+): boolean {
+  const last = lastAccountActivity.get(accountId) ?? 0;
+  return last > 0 && Date.now() - last < maxIdleMs;
+}
+
 /**
  * Register an account as if it had been initialized, with a chosen last
  * activity timestamp. Lets the idle/keep-alive selection be exercised without

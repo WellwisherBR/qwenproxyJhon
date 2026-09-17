@@ -35,7 +35,11 @@ import {
 	type AccountLease,
 } from "../../core/account-concurrency.ts";
 import { isAuthMockEnabled } from "../../services/auth-playwright.ts";
-import { isPlaywrightInitialized, refreshHeaders } from "../../services/playwright.ts";
+import {
+	isPlaywrightInitialized,
+	isAccountRecentlyActive,
+	refreshHeaders,
+} from "../../services/playwright.ts";
 import { enqueueOrphanChatDeletion } from "../../services/chat-cleanup.ts";
 import {
 	clearAllSessionsForAccount,
@@ -78,14 +82,19 @@ const MAX_ANTI_BOT_ROTATIONS = 1;
  * a stuck account page (closed context / WAF) can otherwise hold each browser
  * op for 60s and keep the personalization mutex blocked for minutes.
  */
-export const PERSONALIZATION_SYNC_DEADLINE_MS = 30_000;
+export const PERSONALIZATION_SYNC_DEADLINE_MS = 45_000;
 export const COLD_ACCOUNT_PERSONALIZATION_SYNC_DEADLINE_MS = 60_000;
 
 export function computePersonalizationDeadlineMs(
 	accountId: string | undefined,
 	navigationTimeoutMs = config.timeouts.navigation,
 ): number {
-	if (accountId && accountId !== "global" && isPlaywrightInitialized(accountId)) {
+	if (
+		accountId &&
+		accountId !== "global" &&
+		isPlaywrightInitialized(accountId) &&
+		isAccountRecentlyActive(accountId, 5 * 60 * 1000)
+	) {
 		return PERSONALIZATION_SYNC_DEADLINE_MS;
 	}
 	return Math.max(COLD_ACCOUNT_PERSONALIZATION_SYNC_DEADLINE_MS, navigationTimeoutMs);
