@@ -84,7 +84,7 @@ export function syncCline(options: SyncOptions): ClientSyncResult {
       backupPath,
       success: true,
       action: backupPath ? "updated" : "created",
-      message: `Configured Cline & Zoo Code in state.vscdb with model ${model} and reasoning effort ${reasoningEffort}`,
+      message: `Configured Cline in state.vscdb with model ${model} and reasoning effort ${reasoningEffort}`,
     };
   } catch (err: any) {
     return {

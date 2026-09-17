@@ -67,7 +67,7 @@ Exemplos:
   npm run sync claude         # Sincroniza apenas o Claude Code
   npm run sync openclaw       # Sincroniza apenas o OpenClaw
   npm run sync kilo           # Sincroniza apenas o Kilo Code
-  npm run sync cline          # Sincroniza Cline & Zoo Code
+  npm run sync cline          # Sincroniza apenas o Cline
   npm run sync omp            # Sincroniza apenas o OMP (Oh My Pi)
   npm run sync codex          # Sincroniza apenas o Codex CLI
   npm run sync zed            # Sincroniza apenas o Zed Editor
@@ -108,7 +108,7 @@ async function main() {
       { id: "claude-code", name: "3. Claude Code", path: defaultPaths.claudeCode },
       { id: "openclaw", name: "4. OpenClaw", path: defaultPaths.openClaw },
       { id: "kilo", name: "5. Kilo Code", path: defaultPaths.kilo },
-      { id: "cline", name: "6. Cline & Zoo", path: defaultPaths.cline },
+      { id: "cline", name: "6. Cline", path: defaultPaths.cline },
       { id: "omp", name: "7. OMP (Oh My Pi)", path: defaultPaths.omp },
       { id: "codex", name: "8. Codex CLI", path: defaultPaths.codex },
       { id: "zed", name: "9. Zed Editor", path: defaultPaths.zed },

@@ -185,7 +185,7 @@ test("TUI SyncView: displays all 10 clients and handles full navigation", async 
   assert.ok(render.includes("Claude Code"));
   assert.ok(render.includes("OpenClaw"));
   assert.ok(render.includes("Kilo Code"));
-  assert.ok(render.includes("Cline & Zoo"));
+  assert.ok(render.includes("Cline"));
   assert.ok(render.includes("OMP (Oh My Pi)"));
   assert.ok(render.includes("Codex CLI"));
   assert.ok(render.includes("Zed Editor"));

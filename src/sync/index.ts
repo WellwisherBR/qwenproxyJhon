@@ -544,7 +544,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
     }
   }
 
-  // 8. Cline & Zoo Code
+  // 8. Cline
   if (shouldSync("cline")) {
     const clineExisted = fs.existsSync(paths.cline);
     const clineRes = syncCline({

@@ -162,7 +162,7 @@ test("sync Kilo Code: preserves comments and existing providers, registers qwenp
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-test("sync Cline & Zoo Code: preserves SQLite ItemTable, injects provider with reasoning effort in state.vscdb, and restores", () => {
+test("sync Cline: preserves SQLite ItemTable, injects provider with reasoning effort in state.vscdb, and restores", () => {
   const tmp = createTempDir();
   const filePath = path.join(tmp, "state.vscdb");
 

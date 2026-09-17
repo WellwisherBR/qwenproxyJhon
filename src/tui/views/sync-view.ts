@@ -67,7 +67,7 @@ export class SyncView implements TuiView {
       { id: "claude-code", name: "Claude Code", path: paths.claudeCode },
       { id: "openclaw", name: "OpenClaw", path: paths.openClaw },
       { id: "kilo", name: "Kilo Code", path: paths.kilo },
-      { id: "cline", name: "Cline & Zoo", path: paths.cline },
+      { id: "cline", name: "Cline", path: paths.cline },
       { id: "omp", name: "OMP (Oh My Pi)", path: paths.omp },
       { id: "codex", name: "Codex CLI", path: paths.codex },
       { id: "zed", name: "Zed Editor", path: paths.zed },
