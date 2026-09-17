@@ -64,7 +64,9 @@ export class AccountsView implements TuiView {
   private batchInput = "";
   private batchCursor = 0;
   private batchHoveredButton: "import" | "cancel" | null = null;
+  private batchActiveButton: "import" | "cancel" = "import";
   private lastBatchModalLeftPad = 0;
+  private lastBatchModalStartRow = 4;
   private hoveredActionRow: number | null = null;
   private hoveredAccountIndex: number | null = null;
   private modalHoveredField: "email" | "password" | "save" | "cancel" | null = null;
@@ -202,6 +204,8 @@ export class AccountsView implements TuiView {
       this.isBatchModalOpen = false;
       this.batchInput = "";
       this.batchCursor = 0;
+      this.batchActiveButton = "import";
+      this.batchHoveredButton = null;
       await this.refresh();
 
       const addedCount = result.added.length;
@@ -307,21 +311,38 @@ export class AccountsView implements TuiView {
         this.isBatchModalOpen = false;
         this.batchInput = "";
         this.batchCursor = 0;
+        this.batchActiveButton = "import";
+        this.batchHoveredButton = null;
+        return true;
+      }
+
+      // Keyboard button selection navigation
+      if (key.name === "tab" || key.name === "left" || key.name === "right") {
+        this.batchActiveButton = this.batchActiveButton === "import" ? "cancel" : "import";
+        this.batchHoveredButton = null;
         return true;
       }
 
       // Mouse hover in Batch modal
       if (key.name === "hover" && key.mouse) {
         const { row, col } = key.mouse;
-        const leftPad = this.lastBatchModalLeftPad || 0;
-        const relCol = col - leftPad;
-        if (row === 13 || row === 14) {
-          const btn = relCol <= 30 ? "import" : "cancel";
+        const btnRow = (this.lastBatchModalStartRow || 4) + 11;
+        if (row === btnRow) {
+          const leftPad = this.lastBatchModalLeftPad || 0;
+          const relCol = col - leftPad;
+          let btn: "import" | "cancel" | null = null;
+          if (relCol >= 3 && relCol <= 24) {
+            btn = "import";
+          } else if (relCol >= 25 && relCol <= 44) {
+            btn = "cancel";
+          }
           if (this.batchHoveredButton !== btn) {
             this.batchHoveredButton = btn;
             return true;
           }
-        } else if (this.batchHoveredButton !== null) {
+          return true;
+        }
+        if (this.batchHoveredButton !== null) {
           this.batchHoveredButton = null;
           return true;
         }
@@ -330,16 +351,20 @@ export class AccountsView implements TuiView {
       // Mouse click in Batch modal
       if (key.name === "click" && key.mouse) {
         const { row, col } = key.mouse;
-        const leftPad = this.lastBatchModalLeftPad || 0;
-        const relCol = col - leftPad;
-        if (row === 13 || row === 14) {
-          if (relCol <= 30) {
+        const btnRow = (this.lastBatchModalStartRow || 4) + 11;
+        if (row === btnRow) {
+          const leftPad = this.lastBatchModalLeftPad || 0;
+          const relCol = col - leftPad;
+          if (relCol >= 3 && relCol <= 24) {
             await this.saveBatchAccounts();
             return true;
-          } else {
+          }
+          if (relCol >= 25 && relCol <= 44) {
             this.isBatchModalOpen = false;
             this.batchInput = "";
             this.batchCursor = 0;
+            this.batchActiveButton = "import";
+            this.batchHoveredButton = null;
             return true;
           }
         }
@@ -354,6 +379,7 @@ export class AccountsView implements TuiView {
             pasted +
             this.batchInput.slice(this.batchCursor);
           this.batchCursor += pasted.length;
+          this.batchActiveButton = "import";
           return true;
         }
       }
@@ -386,8 +412,17 @@ export class AccountsView implements TuiView {
         return true;
       }
 
-      // Enter saves
+      // Enter saves or triggers focused button
       if (key.name === "return") {
+        const target = this.batchHoveredButton || this.batchActiveButton;
+        if (target === "cancel") {
+          this.isBatchModalOpen = false;
+          this.batchInput = "";
+          this.batchCursor = 0;
+          this.batchActiveButton = "import";
+          this.batchHoveredButton = null;
+          return true;
+        }
         await this.saveBatchAccounts();
         return true;
       }
@@ -619,6 +654,8 @@ export class AccountsView implements TuiView {
       this.isBatchModalOpen = true;
       this.batchInput = "";
       this.batchCursor = 0;
+      this.batchActiveButton = "import";
+      this.batchHoveredButton = null;
       return true;
     }
 
@@ -1007,16 +1044,27 @@ export class AccountsView implements TuiView {
     if (this.isBatchModalOpen) {
       const modalW = Math.min(width - 4, 70);
       this.lastBatchModalLeftPad = Math.max(0, Math.floor((width - modalW) / 2));
+      this.lastBatchModalStartRow = 4;
 
       const parsed = parseBatchAccounts(this.batchInput);
       const count = parsed.entries.length;
       const invalidCount = parsed.invalid.length;
 
       const rawLines = this.batchInput.split(/\r?\n/).filter(Boolean);
-      const previewLines = rawLines.slice(-4);
-      const displaySnippet = previewLines.map((l) => "    " + truncate(l, modalW - 8));
-      while (displaySnippet.length < 4) {
-        displaySnippet.unshift("    " + theme.dim("(linha vazia)"));
+      let displaySnippet: string[];
+      if (rawLines.length === 0) {
+        displaySnippet = [
+          "",
+          "    " + theme.dim("Nenhuma conta colada ainda."),
+          "    " + theme.cyan("Pressione Ctrl+V") + " " + theme.dim("para colar suas contas aqui..."),
+          "",
+        ];
+      } else {
+        const previewLines = rawLines.slice(-4);
+        displaySnippet = previewLines.map((l) => "    " + truncate(l, modalW - 8));
+        while (displaySnippet.length < 4) {
+          displaySnippet.unshift("");
+        }
       }
 
       const countBadge =
@@ -1026,15 +1074,25 @@ export class AccountsView implements TuiView {
       const invalidBadge =
         invalidCount > 0 ? theme.red(` | ${invalidCount} formato(s) ignorado(s)`) : "";
 
-      const importBtn =
-        this.batchHoveredButton === "import"
-          ? theme.bgHover(theme.green(" [ Enter ] Importar "))
-          : theme.green("[ Enter ] Importar");
+      const isImportHovered = this.batchHoveredButton === "import";
+      const isCancelHovered = this.batchHoveredButton === "cancel";
+      const isImportSelected = !this.batchHoveredButton && this.batchActiveButton === "import";
+      const isCancelSelected = !this.batchHoveredButton && this.batchActiveButton === "cancel";
 
-      const cancelBtn =
-        this.batchHoveredButton === "cancel"
-          ? theme.bgHover(theme.red(" [ Esc ] Cancelar "))
-          : theme.muted("[ Esc ] Cancelar");
+      const importLabel = " [ Enter ] Importar ";
+      const cancelLabel = " [ Esc ] Cancelar ";
+
+      const importBtn = isImportHovered
+        ? theme.bgHover(theme.bold(importLabel))
+        : isImportSelected
+        ? theme.bgSelected(theme.bold(importLabel))
+        : theme.green(importLabel);
+
+      const cancelBtn = isCancelHovered
+        ? theme.bgHover(theme.bold(cancelLabel))
+        : isCancelSelected
+        ? theme.bgSelected(theme.bold(cancelLabel))
+        : theme.muted(cancelLabel);
 
       const modalContent = [
         "",
@@ -1044,9 +1102,8 @@ export class AccountsView implements TuiView {
         `  ${theme.dim("────────────────────────────────────────────────────────")}`,
         `  Status: ${countBadge}${invalidBadge}`,
         "",
-        `  ${importBtn}    ${cancelBtn}    ${theme.dim("(Ctrl+V colar)")}`,
+        `  ${importBtn}  ${cancelBtn}    ${theme.dim("(Ctrl+V colar)")}`,
       ];
-
       const modalBox = drawBox({
         title: "Importar Contas em Lote (Multi-Contas)",
         width: modalW,

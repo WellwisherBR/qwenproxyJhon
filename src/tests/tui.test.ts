@@ -1556,7 +1556,7 @@ test("TUI ServerLogBuffer: cleans redundant level prefixes and normalizes emoji 
   assert.equal(lastTwo[1].message, "⏱️ [Playwright] Resetting account context");
 });
 
-test("TUI AccountsView: opens Batch Import modal with 'b', counts valid accounts, and cancels with Esc", async () => {
+test("TUI AccountsView: opens Batch Import modal with 'b', counts valid accounts, handles hover, selection, and cancels with Esc", async () => {
   const view = new AccountsView();
 
   // Open batch modal with 'b'
@@ -1565,6 +1565,32 @@ test("TUI AccountsView: opens Batch Import modal with 'b', counts valid accounts
 
   let render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Importar Contas em Lote"));
+  // Must NOT have repeated "(linha vazia)" lines
+  assert.ok(!render.includes("(linha vazia)"));
+  assert.ok(render.includes("Nenhuma conta colada ainda"));
+
+  // Initial selection is on Importar
+  assert.equal((view as any).batchActiveButton, "import");
+
+  // Tab switches selection to Cancelar
+  await view.handleKey({ name: "tab", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).batchActiveButton, "cancel");
+
+  // Left arrow switches back to Importar
+  await view.handleKey({ name: "left", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).batchActiveButton, "import");
+
+  // Mouse hover over Importar (btnRow is 15, modal pad is 5, col 12 is relCol 7)
+  await view.handleKey({ name: "hover", ctrl: false, shift: false, meta: false, mouse: { type: "hover", row: 15, col: 12 } });
+  assert.equal((view as any).batchHoveredButton, "import");
+
+  // Mouse hover over Cancelar (col 35 is relCol 30)
+  await view.handleKey({ name: "hover", ctrl: false, shift: false, meta: false, mouse: { type: "hover", row: 15, col: 35 } });
+  assert.equal((view as any).batchHoveredButton, "cancel");
+
+  // Mouse hover outside buttons clears hover
+  await view.handleKey({ name: "hover", ctrl: false, shift: false, meta: false, mouse: { type: "hover", row: 10, col: 35 } });
+  assert.equal((view as any).batchHoveredButton, null);
 
   // Paste accounts block
   await view.handleKey({
@@ -1576,10 +1602,18 @@ test("TUI AccountsView: opens Batch Import modal with 'b', counts valid accounts
   });
 
   render = view.render(80, 24).join("\n");
-  assert.ok(render.includes("3 contas detectadas") || render.includes("3"));
+  assert.ok(render.includes("3 conta(s) detectada(s)") || render.includes("3"));
 
-  // Cancel with Esc
-  await view.handleKey({ name: "escape", ctrl: false, shift: false, meta: false });
+  // Tab to Cancelar and press Enter to cancel
+  await view.handleKey({ name: "tab", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).batchActiveButton, "cancel");
+  await view.handleKey({ name: "return", ctrl: false, shift: false, meta: false });
+  assert.equal(view.isCapturingText(), false);
+
+  // Re-open and verify mouse click on Cancelar button closes modal
+  await view.handleKey({ name: "b", ctrl: false, shift: false, meta: false });
+  assert.equal(view.isCapturingText(), true);
+  await view.handleKey({ name: "click", ctrl: false, shift: false, meta: false, mouse: { type: "click", button: "left", row: 15, col: 35 } });
   assert.equal(view.isCapturingText(), false);
 });
 
