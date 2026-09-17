@@ -1,3 +1,6 @@
+try {
+  process.title = "QwenProxy";
+} catch {}
 process.env.DOTENV_CONFIG_QUIET = 'true'
 import dotenv from 'dotenv'
 import fs from 'node:fs'

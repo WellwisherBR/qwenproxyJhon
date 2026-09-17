@@ -37,6 +37,10 @@ test("TUI Theme: stripAnsi removes all escape codes cleanly", () => {
   const mixed = `${theme.bgSelected("Menu Item")} - ${theme.dim("[q] Quit")}`;
   assert.equal(stripAnsi(mixed), "Menu Item - [q] Quit");
 });
+test("TUI Theme: ANSI.setTitle formats OSC 0 terminal title sequence", () => {
+  assert.equal(ANSI.setTitle("QwenProxy"), "\x1b]0;QwenProxy\x07");
+  assert.equal(stripAnsi(ANSI.setTitle("QwenProxy")), "");
+});
 
 test("TUI Theme: stringWidth accurately measures plain and formatted text", () => {
   assert.equal(stringWidth("hello"), 5);

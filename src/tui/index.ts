@@ -23,6 +23,9 @@ function parseInitialTab(): number | undefined {
 
   return undefined;
 }
+try {
+  process.title = "QwenProxy";
+} catch {}
 
 async function main() {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
