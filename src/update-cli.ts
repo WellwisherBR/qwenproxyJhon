@@ -68,6 +68,46 @@ export function isNewerVersion(current: string, latest: string): boolean {
   return false;
 }
 
+export async function fetchLatestNpmVersion(packageName: string): Promise<string> {
+  // 1. Direct fast HTTP query to registry.npmjs.org (bypasses child process & Windows npm.cmd cold start)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`https://registry.npmjs.org/${packageName}/latest`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = (await res.json()) as { version?: string };
+      if (data.version && typeof data.version === "string") {
+        return data.version.trim();
+      }
+    }
+  } catch {}
+
+  // 2. Fallback: npm view via CLI with a generous 30s timeout and clean semver extraction
+  try {
+    const fullCmd = `npm view ${packageName} version`;
+    const res = spawnSync(fullCmd, {
+      encoding: "utf-8",
+      shell: true,
+      timeout: 30000,
+    });
+    if (res.stdout) {
+      const lines = res.stdout.trim().split(/\r?\n/);
+      for (const line of lines.reverse()) {
+        const cleaned = line.trim().replace(/^v/i, "");
+        if (/^\d+\.\d+\.\d+/.test(cleaned)) {
+          return cleaned;
+        }
+      }
+    }
+  } catch {}
+
+  return "";
+}
+
 export async function runUpdateCommand(): Promise<void> {
   let pkg: any = { name: "qwenproxy-cli", version: "1.0.0" };
   try {
@@ -82,16 +122,7 @@ export async function runUpdateCommand(): Promise<void> {
   console.log(`⚙️ [QwenProxy] Gerenciador de pacotes detectado: ${pm}`);
   console.log(`🔍 [QwenProxy] Verificando se há novas versões de ${packageName} no npm registry...`);
 
-  let latestVersion = "";
-  try {
-    const fullCmd = `npm view ${packageName} version`;
-    const res = spawnSync(fullCmd, {
-      encoding: "utf-8",
-      shell: true,
-      timeout: 10000,
-    });
-    latestVersion = res.stdout ? res.stdout.trim() : "";
-  } catch {}
+  const latestVersion = await fetchLatestNpmVersion(packageName);
 
   if (!latestVersion) {
     console.warn("⚠️  [QwenProxy] Não foi possível consultar o registro online.");
