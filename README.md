@@ -25,28 +25,21 @@ Toda contribuição é muito bem-vinda e ajuda a cobrir custos de infraestrutura
 
 ---
 
-## Principais funcionalidades
+## 🚀 Principais funcionalidades
 
-- **Compatibilidade OpenAI &amp; Anthropic** — `/v1/chat/completions`, `/v1/completions` (legado), `/v1/models`, `/v1/messages` (**Anthropic Messages API** nativa com suporte total a **Claude Code CLI** e `@anthropic-ai/sdk`), `/v1/messages/count_tokens` e **Responses API** `/v1/responses`.
-- **Responses API completa** — SSE com `event:` + `data:` + `sequence_number`, memória persistente via `previous_response_id` (SQLite durável), `last_response_id`, multimodal (`input_image`/`input_file`), reasoning effort normalization, lifecycle events de reasoning e usage real do upstream.
-- **Thread-native** — Reutiliza sessão/pai no Qwen; preservação de contexto entre turns
-- **Três modos de conversa** — `thread` (default, encadeamento nativo e delta de turns), `temp-thread` (recomendado para chat/TUI, efêmero `chat_mode:"local"` com contexto contínuo, zero poluição no `chat.qwen.ai`), e `temp` (stateless padrão OpenAI, novo chat efêmero por requisição).
-- **Instância única de Chromium ultra-leve** — 1 único processo de navegador compartilhado para todas as contas com isolamento seguro de `BrowserContext` e `storageState` JSON, consumindo ~200MB de RAM (economia de >65%).
-- **Dashboard TUI completo & responsivo** — Interface visual interativa no terminal (`qpx`) com monitoramento em tempo real, abas dedicadas para Chat, Sincronização de Agentes, Diagnóstico de Armazenamento, Gerenciamento de Contas e Logs, com confirmações de segurança para ações irreversíveis.
-- **Atualizador inteligente embutido** — Comando `qpx update` que detecta automaticamente seu gerenciador de pacotes (`npm`, `pnpm`, `bun`, `yarn`) e atualiza com um único comando.
-- **Startup sob demanda e multi-conta** — Sobe instantaneamente com a **primeira conta pronta**; as contas reservas ficam em repouso (*Standby*) e inicializam sem esforço apenas sob demanda.
-- **Retries resilientes** — 502/503/504, erros de rede (`fetch failed`), anti-bot, quota e `invalid_input` com recriação de chat.
-- **Parser de tools robusto** — stream fragmentado, JSON malformado, fuzzy de nomes (`readFile` → `read_file`), JSON duplamente escapado e `</tool_call>` case-insensitive.
-- **Personalization sync** — system + tools completos são sincronizados em `/settings/personalization` via `POST /api/v2/users/user/settings/update`; o cache por conteúdo evita updates repetidos e instruções acima do limite seguem inline; aplica settings seguras (`largeTextAsFile=false`, memory off, tools internas off).
-- **Senhas criptografadas at-rest** no SQLite.
-- **Uploads multimodais** — imagens, vídeo, áudio e documentos via OSS do Qwen.
-- **Modelos atuais** — catálogo live da família `qwen3.x` (incluindo `qwen3.8-max`) + variantes sintéticas `-fast`/`-thinking` para todos os modelos + registro de capabilities (vision, thinking, modalities)
-- **Thinking nativo** — raciocínio chega via `phase: thinking_summary` do upstream, sem sanitização de tags; o modelo é instruído a nunca emitir `<think>` no conteúdo visível
-- **Observabilidade** — `/health`, `/metrics` (Prometheus), watchdog e logs com emojis.
-- **Deploy simples** — `npm`, Docker e graceful shutdown.
-- **Geração de fotos e vídeos** — `/v1/images/generations` e `/v1/videos/generations` com modelos de ponta (`qwen-image-3.0-pro`, `qwen-image-3.0`, `wan2.7-image-pro`, `wan3.0-video` até 30s 1080P, `z-image-turbo`). Intercepta também pelo chat completions devolvendo Markdown renderizável.
-- **Logs padronizados e unificados** — Exatamente 1 par limpo (`📥 Incoming` e `📤 Request`) por turno em todos os protocolos (`[Chat]`, `[Anthropic]`, `[Responses]`, `[Completions]`).
-
+- **Compatibilidade Nativa OpenAI & Anthropic** — `/v1/chat/completions`, `/v1/models`, `/v1/messages` (**Anthropic Messages API nativa** para **Claude Code CLI** e SDK oficial), `/v1/messages/count_tokens`, **OpenAI Responses API** (`/v1/responses`) e `/v1/completions` (legado).
+- **Matriz de 4 Modos de Conversação** — `thread` (padrão persistente), `thread-temp` (delta ~1KB efêmero, recomendado para agentes), `stateless-temp` (OpenAI oficial completo, efêmero) e `stateless` (OpenAI oficial completo, salvo na conta).
+- **Controle Dinâmico de Modos em Tempo Real** — Alterne o modo da API global instantaneamente pela TUI (tecla `M` na tela inicial ou `F4` no Chat) ou via endpoint `/v1/chat/mode`, sem reiniciar o proxy.
+- **Dashboard TUI Completo no Terminal (`qpx`)** — Interface visual com suporte total a mouse (hover, clique, arrasto e scroll), seleção vertical de modelos e modos, e título de terminal nativo `QwenProxy`.
+- **Importação de Contas em Lote (`B`)** — Cole dezenas de contas de uma vez (`email:senha`, formato `.env`, tab, pipe). Criptografia at-rest em transação SQLite única (<10ms) com deduplicação e contagem em tempo real.
+- **Rolagem Dinâmica de Viewport** — Navegação suave em listas de 50+ contas sem estourar o tamanho da janela nem desalinhamento de colunas.
+- **Sincronizador Automático de Clientes (`qpx sync`)** — Configuração em 1 clique para Claude Code, OpenAI Codex, OpenCode, Cline, OMP, Zed, Kilo Code e Hermes com backup e restauração.
+- **Instância Única de Chromium Ultra-Leve** — 1 único processo de navegador com aceleração WebGL ativa e isolamento seguro de `BrowserContext` (~200MB de RAM para todas as contas, economia >65%).
+- **Startup Sob Demanda & Multi-Conta** — Sobe instantaneamente com a primeira conta pronta; contas reservas permanecem em *Standby* e inicializam sem esforço sob demanda (failover ou rotação).
+- **Sincronização de Personalization Limpa** — System prompts e tools são sincronizados diretamente na personalização da conta (`/settings/personalization`), imitando 100% o cliente web real e evitando gatilhos de WAF/bot.
+- **Parser de Tool Calling com Auto-Cura** — Suporta streaming fragmentado, reparo de JSON quebrado, tags unificadas `<qpx_call>`, fuzzy matching de nomes (`readFile` → `read_file`) e auto-retry inteligente.
+- **Geração de Fotos e Vídeos** — Endpoints dedicados `/v1/images/generations` e `/v1/videos/generations` com modelos de ponta (`qwen-image-3.0-pro`, `wan3.0-video`, `wan2.7-image-pro`).
+- **Observabilidade & Métricas** — Monitoramento em tempo real em `/health`, `/metrics` (Prometheus), watchdog de memória RSS e logs unificados por turno.
 ---
 
 ## Arquitetura
@@ -237,6 +230,121 @@ curl http://localhost:7936/v1/responses \
 ```
 
 ---
+## 🔄 Modos de conversação
+
+O QwenProxy oferece uma matriz completa de **4 modos de operação**, permitindo equilibrar economia de tokens, velocidade e organização do histórico:
+
+| Modo | Formato do Envio | Upstream Qwen | Persistência na Conta Web | Caso de Uso Ideal |
+| :--- | :--- | :--- | :---: | :--- |
+| **`thread-temp`** ⭐ | **Delta (~1KB)** | `chat_mode: "local"` | ❌ Não (Zero poluição) | **O melhor para o dia a dia.** Recomendado para Claude Code, Codex, OpenCode e Cursor. Máxima velocidade, TTFB ultra-baixo e não enche sua conta de chats descartáveis. |
+| **`stateless-temp`** | **Histórico Completo** | `chat_mode: "local"` | ❌ Não (Zero poluição) | **Padrão Oficial das APIs (OpenAI/Anthropic).** Envia todas as mensagens a cada turno. Ideal se você costuma editar ou reordenar mensagens antigas durante a sessão. |
+| **`thread`** *(Padrão)* | **Delta (~1KB)** | `chat_mode: "normal"` | ✅ Sim (Salva no site) | Ideal se você fizer questão de abrir o site `chat.qwen.ai` no celular ou navegador depois para reler o histórico da conversa. |
+| **`stateless`** | **Histórico Completo** | `chat_mode: "normal"` | ✅ Sim (Salva no site) | Envia o histórico completo e mantém as conversas salvas na conta do Qwen. |
+
+### Como alternar os modos:
+
+1. **Pela TUI (Em Tempo Real para todo o Proxy):**
+   - **Na tela `[1] Status`:** Pressione a tecla **`M`** (ou clique em `[ M ] Alternar Modo`) para ciclar o modo da API global na hora.
+   - **Na tela `[2] Chat`:** Pressione **`F4`** (ou clique no indicador `[ Modo ]`) para abrir o modal de seleção vertical.
+2. **Via Endpoint HTTP (Controle Remoto Dinâmico):**
+   ```bash
+   # Inspecionar modo ativo:
+   curl http://127.0.0.1:7936/v1/chat/mode
+
+   # Alterar modo globalmente em tempo real:
+   curl -X POST http://127.0.0.1:7936/v1/chat/mode \
+     -H "Content-Type: application/json" \
+     -d '{"mode":"thread-temp"}'
+   ```
+3. **Por Requisição (Header HTTP Individual):**
+   Envie o header `X-QwenProxy-Chat-Mode: thread-temp` (ou `stateless-temp`, `thread`, `stateless`) em chamadas individuais.
+4. **No arquivo `.env` (Padrão de Inicialização):**
+   ```env
+   QWEN_CHAT_MODE=thread
+   ```
+
+---
+
+## 📖 Passo a passo: Como começar do zero
+
+### 1. Instalação
+
+Instale o CLI do QwenProxy globalmente no seu sistema:
+
+```bash
+# Via npm:
+npm install -g qwenproxy-cli
+
+# Ou via pnpm / bun:
+pnpm add -g qwenproxy-cli
+# bun add -g qwenproxy-cli
+```
+
+### 2. Iniciar o Dashboard Interativo (TUI)
+
+Abra o terminal e execute:
+
+```bash
+qpx
+```
+
+O QwenProxy inicializa o servidor de alta performance em segundo plano e abre a interface interativa no terminal. O título da janela do terminal será automaticamente definido como **`QwenProxy`**.
+
+### 3. Adicionar Contas Qwen
+
+Na TUI, você pode gerenciar suas contas na aba **`[5] Contas`** de duas formas simples:
+
+- **Importação em Lote (`B`):** Pressione a tecla **`B`** (ou clique em `[ B ] Em Lote`). Cole suas contas de uma só vez (aceita formato `email:senha`, formato bruto do `.env` com vírgulas ou copiado de planilhas). O sistema calcula a contagem em tempo real, valida duplicatas e grava tudo no SQLite criptografado em milissegundos.
+- **Adição Individual (`A`):** Pressione a tecla **`A`** para digitar o e-mail e a senha de uma conta específica.
+- **Login Manual no Navegador:** Se preferir fazer login visual com captcha manual, execute no terminal: `qpx login`.
+
+### 4. Sincronizar com seus Agentes de IA
+
+Para configurar automaticamente seus editores e CLIs favoritos para usarem o QwenProxy:
+
+```bash
+# Sincroniza todos os clientes detectados na sua máquina:
+qpx sync
+
+# Ou sincronize clientes específicos:
+qpx sync claude codex opencode
+```
+
+O sincronizador detecta e configura automaticamente:
+- **Claude Code CLI** (`~/.claude/settings.json`) — Usa o protocolo nativo Anthropic (`/v1/messages`).
+- **OpenAI Codex CLI** (`~/.codex/config.toml`) — Usa o protocolo nativo Responses (`/v1/responses`).
+- **OpenCode** (`~/.config/opencode/opencode.jsonc`) — Configura provider OpenAI-compatible.
+- **Cline, OMP, Zed, Kilo Code e Hermes Agent**.
+
+> **Dica de Rollback:** Se quiser desfazer a configuração e restaurar os arquivos originais a qualquer momento, execute `qpx sync -- --restore`.
+
+### 5. Pronto para Trabalhar!
+
+Agora basta abrir o seu agente favorito normalmente:
+```bash
+# Usar o Claude Code:
+claude
+
+# Usar o Codex CLI:
+codex
+
+# Usar o OpenCode:
+opencode
+```
+Todas as requisições fluem com máxima velocidade, failover automático entre contas e sem custos de API externa!
+
+---
+
+## 💡 Dicas de uso e produção
+
+1. **Use `thread-temp` para Programar no Dia a Dia:**  
+   Agentes de desenvolvimento geram dezenas de turnos e chamadas de ferramenta por minuto. Usar o modo `thread-temp` evita que centenas de conversas descartáveis entulhem a sua conta pessoal no `chat.qwen.ai`, mantendo o TTFB na faixa de ~0.6s a 1.2s.
+2. **Multi-Contas para Quota Diária Alta:**  
+   Adicione 2 ou mais contas no QwenProxy. As cotas do Qwen Web resetam pontualmente às **00:00 UTC**. Se uma conta atingir o limite diário, o proxy a coloca em cooldown automaticamente e faz o failover instantâneo para a próxima conta saudável.
+3. **Limpeza Periódica de Perfis (`qpx clean`):**  
+   Com o tempo de uso contínuo, o Chromium acumula cache de renderização V8/GPU. Execute `qpx clean` para purgar caches descartáveis, reduzindo o tamanho de cada perfil de ~300MB para apenas **~4.5MB**, preservando 100% os cookies e sessões ativas.
+4. **Zerar Cooldowns na TUI:**  
+   Se você quiser forçar a revalidação imediata de contas em cooldown, vá até a aba **`[1] Status`** e pressione **`Z`** (ou use `qpx reset`).
 
 ## Pré-requisitos
 
@@ -390,7 +498,7 @@ npm run typecheck  # tipos
 | `QWEN_MAX_PERSONALIZATION_BYTES`    | `200000`       | Teto UTF-8 para personalization por request; acima disso as instruções seguem inline                                                                                                                                                                             |
 | `QWEN_CHAT_POOL_SIZE`               | `1`            | Warm pool de chats por modelo; fica desativado quando personalization por request está ativa                                                                                                                                                                     |
 | `QWEN_CHAT_POOL_MODELS`             | `qwen3.7-plus` | Modelos aquecidos no warm pool                                                                                                                                                                                                                                   |
-| `QWEN_CHAT_MODE`                    | `thread`       | Modo de conversa: `thread` (reutiliza o chat upstream via `parent_id` e envia o delta), `temp-thread` (chat efêmero `chat_mode:"local"` com contexto contínuo, zero poluição no Qwen Web) ou `temp` (stateless padrão OpenAI, novo chat efêmero por requisição). Override por request via header `X-QwenProxy-Chat-Mode: thread/temp/temp-thread` |
+| `QWEN_CHAT_MODE`                    | `thread`       | Modo de conversa padrão: `thread`, `thread-temp`, `stateless` ou `stateless-temp`. Override dinâmico via TUI (`M`/`F4`), HTTP (`/v1/chat/mode`) ou header `X-QwenProxy-Chat-Mode`. |
 
 
 ### Playwright / processos
@@ -841,16 +949,17 @@ QwenProxy/
 
 | Comando             | Descrição                                                               |
 | ------------------- | ----------------------------------------------------------------------- |
-| `npm run tui`       | Abrir o dashboard interativo da TUI com proxy embutido                  |
-| `npm start`         | Iniciar apenas o servidor QwenProxy em modo headless                    |
-| `npm run sync`      | Sincronizar clientes (Claude Code, Codex, OpenCode, OMP) com backup     |
-| `npm run clean`     | Limpar caches temporários dos perfis Chromium (~4.5MB por conta)        |
-| `npm run clean:all` | Limpar caches + remover navegadores órfãos e versões antigas em disco   |
-| `npm run reset`     | Zerar cooldowns de contas no banco de dados                             |
-| `npm run login`     | Adicionar/autenticar novas contas visualmente no navegador              |
-| `npm run purge`     | Limpar chats remotos do Qwen nas contas configuradas                    |
-| `npm test`          | Executar suíte de testes completa                                       |
-| `npm run typecheck` | Checagem estrita de tipos do TypeScript                                 |
+| `qpx` *(ou `npm run tui`)*       | Abrir o dashboard interativo da TUI com servidor proxy integrado        |
+| `qpx start` *(ou `npm start`)*   | Iniciar apenas o servidor HTTP/SSE em modo headless (sem interface)     |
+| `qpx sync` *(ou `npm run sync`)* | Sincronizar clientes (Claude Code, Codex, OpenCode, Cline, OMP)          |
+| `qpx clean`                      | Purgar caches temporários dos perfis Chromium (~4.5MB por conta)        |
+| `qpx clean:all`                  | Purgar caches e remover navegadores órfãos antigos em disco (~4GB)       |
+| `qpx reset`                      | Zerar cooldowns de contas no banco de dados                             |
+| `qpx login`                      | Adicionar e autenticar contas visualmente no navegador                  |
+| `qpx purge`                      | Limpar chats remotos do Qwen nas contas configuradas                    |
+| `qpx update`                     | Atualizar o QwenProxy automaticamente para a versão mais recente        |
+| `npm test`                       | Executar a suíte completa de testes automatizados                       |
+| `npm run typecheck`              | Checagem estrita de tipos do TypeScript (zero erros)                    |
 ---
 
 ## Scripts de instalação, início e atualização
