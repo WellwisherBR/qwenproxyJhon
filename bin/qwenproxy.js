@@ -67,6 +67,11 @@ Options:
 `);
   process.exit(0);
 }
+// 2.5 Pure Node update execution (bypasses tsx and esbuild.exe locks)
+if (firstArg === "update") {
+  const { runUpdateCommand } = await import("./update.js");
+  await runUpdateCommand();
+} else {
 
 // 3. Command dispatcher
 let scriptFile = "src/index.ts";
@@ -92,9 +97,6 @@ if (firstArg === "start" || rawArgs.includes("--server")) {
   scriptArgs = rawArgs.slice(1);
 } else if (firstArg === "purge") {
   scriptFile = "src/delete-chats.ts";
-  scriptArgs = rawArgs.slice(1);
-} else if (firstArg === "update") {
-  scriptFile = "src/update-cli.ts";
   scriptArgs = rawArgs.slice(1);
 } else if (firstArg === "login") {
   scriptFile = "src/login.ts";
@@ -229,3 +231,4 @@ process.on("SIGTERM", () => {
 });
 
 process.on("exit", restoreTerminal);
+}
