@@ -29,7 +29,7 @@ export function recordServerLog(level: "INFO" | "WARN" | "ERROR", text: string):
 
   const lines = clean.split(/\r?\n/);
   for (const raw of lines) {
-    const line = raw.trim();
+    let line = raw.trim();
     if (!line) continue;
     // Filter out raw ASCII box frames and border rows
     if (/^[+\-=#]{5,}$/.test(line)) continue;
@@ -49,6 +49,12 @@ export function recordServerLog(level: "INFO" | "WARN" | "ERROR", text: string):
       continue;
     }
 
+    // Clean redundant leading level tags (e.g. "WARN [Qwen]" -> "[Qwen]")
+    // and normalize multi-space gaps after emojis
+    line = line
+      .replace(/^(?:\[?(?:INFO|WARN|WARNING|ERROR|ERR|DEBUG)\]?\s+)+/i, "")
+      .replace(/([\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}]\uFE0F?)\s{2,}/gu, "$1 ");
+    if (!line) continue;
     const entry: ServerLogMessage = { time, level, message: line };
     logHistory.push(entry);
     if (logHistory.length > MAX_LOG_HISTORY) {

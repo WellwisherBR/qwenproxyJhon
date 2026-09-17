@@ -113,6 +113,11 @@ export class ServerManager {
       ) {
         continue;
       }
+      // Clean redundant leading level tags (e.g. "WARN [Qwen]" -> "[Qwen]")
+      // and normalize multi-space gaps after emojis
+      line = line
+        .replace(/^(?:\[?(?:INFO|WARN|WARNING|ERROR|ERR|DEBUG)\]?\s+)+/i, "")
+        .replace(/([\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}]\uFE0F?)\s{2,}/gu, "$1 ");
       if (!line) continue;
 
       // Prevent identical consecutive duplicate logs in the same second

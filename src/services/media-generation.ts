@@ -116,7 +116,7 @@ export function logMediaDebug(message: string): void {
 }
 
 export function logMediaWarn(message: string): void {
-  console.warn(`⚠️  ${message}`);
+  console.warn(`⚠️ ${message}`);
 }
 
 export function logMediaError(message: string): void {
@@ -658,7 +658,7 @@ async function requestCompletionsWithBrowserFallback(params: {
         headers,
         referrer: qwenUrl(`/c/${encodeURIComponent(chatId)}`),
         streaming,
-        timeoutMs: Math.min(timeoutMs, IMAGE_TIMEOUT_MS),
+        timeoutMs: Math.min(timeoutMs, kind === "video" ? VIDEO_TIMEOUT_MS : IMAGE_TIMEOUT_MS),
       });
 
       if (browserResult.error) {

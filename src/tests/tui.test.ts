@@ -1513,3 +1513,29 @@ test("TUI StatusView: orders ready and active accounts ahead of standby and cool
   assert.ok(posStandby < posCd, "Standby account must be listed before cooldown account");
   assert.ok(posCd < posAuthFail, "Cooldown account must be listed before auth fail account");
 });
+
+test("TUI ServerManager: cleans redundant level prefixes and normalizes emoji spacing", async () => {
+  const { ServerManager } = await import("../tui/server-manager.ts");
+  const sm = ServerManager.getInstance();
+  sm.clearLogs();
+
+  (sm as any).appendLog("WARN", "WARN [Qwen] Completion returned an HTML or anti-bot challenge body instead of SSE.");
+  (sm as any).appendLog("WARN", "⏱️  [Playwright] Resetting account context after a stuck page operation");
+
+  const entries = sm.getLogEntries("all");
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0].message, "[Qwen] Completion returned an HTML or anti-bot challenge body instead of SSE.");
+  assert.equal(entries[1].message, "⏱️ [Playwright] Resetting account context after a stuck page operation");
+});
+
+test("TUI ServerLogBuffer: cleans redundant level prefixes and normalizes emoji spacing", async () => {
+  const { recordServerLog, getServerLogHistory } = await import("../core/server-log-buffer.ts");
+
+  recordServerLog("WARN", "WARN [Qwen] Completion returned an HTML or anti-bot challenge body instead of SSE.");
+  recordServerLog("WARN", "⏱️  [Playwright] Resetting account context");
+
+  const history = getServerLogHistory();
+  const lastTwo = history.slice(-2);
+  assert.equal(lastTwo[0].message, "[Qwen] Completion returned an HTML or anti-bot challenge body instead of SSE.");
+  assert.equal(lastTwo[1].message, "⏱️ [Playwright] Resetting account context");
+});

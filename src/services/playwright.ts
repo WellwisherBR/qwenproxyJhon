@@ -2676,7 +2676,10 @@ export async function withAccountPage<T>(
       return result;
     } catch (error) {
       const message = getErrorMessage(error);
-      if (message.includes("Playwright page operation timed out")) {
+      if (
+        recoverOnTimeout &&
+        message.includes("Playwright page operation timed out")
+      ) {
         console.warn(
           `⏱️  [Playwright] Resetting account context after a stuck page operation: ${accountId}`,
         );
