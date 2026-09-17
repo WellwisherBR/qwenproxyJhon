@@ -3,7 +3,8 @@ import net from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import { Hono, type Context } from "hono";
 import { serve } from "@hono/node-server";
-import { config } from "../core/config.js";
+import { config, getRuntimeChatMode, setRuntimeChatMode } from "../core/config.js";
+import { saveTuiSettings } from "../tui/settings.ts";
 import { metrics } from "../core/metrics.js";
 import { logger, maskEmail } from "../core/logger.js";
 import { MemoryCache } from "../cache/memory-cache.js";
@@ -248,7 +249,22 @@ app.post("/v1/upload", uploadFile);
 app.post("/v1/images/generations", imagesGenerations);
 app.post("/v1/videos/generations", videosGenerations);
 app.get("/v1/tasks/status/:taskId", videoTaskStatus);
-
+app.get("/v1/chat/mode", (c) => {
+  const error = verifyApiKey(c);
+  if (error) return error;
+  return c.json({ mode: getRuntimeChatMode() });
+});
+app.post("/v1/chat/mode", async (c) => {
+  const error = verifyApiKey(c);
+  if (error) return error;
+  const body = (await c.req.json().catch(() => ({}))) as { mode?: string };
+  if (!body.mode) {
+    return c.json({ error: { message: "Field 'mode' is required" } }, 400);
+  }
+  const updated = setRuntimeChatMode(body.mode);
+  saveTuiSettings({ chat: { mode: updated } });
+  return c.json({ success: true, mode: updated });
+});
 // OpenAI Responses API compatible routes
 app.route("", responsesApp);
 app.route("", anthropicApp);
