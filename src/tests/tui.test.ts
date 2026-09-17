@@ -141,20 +141,43 @@ test("TUI Proxy Client: maskAccountIdentifier masks emails and IDs for privacy",
   assert.equal(maskAccountIdentifier("short"), "short");
 });
 
-test("TUI StatusView: exposes shortcuts and renders valid box frame", () => {
-  const view = new StatusView();
-  assert.equal(view.id, "status");
-  assert.equal(view.tabNumber, 1);
+test("TUI StatusView: exposes shortcuts, displays global API mode, and cycles mode with 'm'", async () => {
+  const { setRuntimeChatMode, getRuntimeChatMode } = await import("../core/config.ts");
+  const initialMode = getRuntimeChatMode();
+  setRuntimeChatMode("thread");
 
-  const shortcuts = view.getShortcuts();
-  assert.ok(shortcuts.some((s) => s.key === "r"));
-  assert.ok(shortcuts.some((s) => s.key === "z"));
+  try {
+    const view = new StatusView();
+    assert.equal(view.id, "status");
+    assert.equal(view.tabNumber, 1);
 
-  const lines = view.render(80, 24);
-  assert.ok(lines.length > 0);
-  const fullText = stripAnsi(lines.join("\n"));
-  assert.ok(fullText.includes("Sistema"));
-  assert.ok(fullText.includes("Contas"));
+    const shortcuts = view.getShortcuts();
+    assert.ok(shortcuts.some((s) => s.key === "r"));
+    assert.ok(shortcuts.some((s) => s.key === "z"));
+    assert.ok(shortcuts.some((s) => s.key === "m"));
+
+    let lines = view.render(80, 24);
+    assert.ok(lines.length > 0);
+    let fullText = stripAnsi(lines.join("\n"));
+    assert.ok(fullText.includes("Modo API:"));
+    assert.ok(fullText.includes("[thread]"));
+
+    // Press 'm' to cycle to thread-temp
+    await view.handleKey({ name: "m", ctrl: false, shift: false, meta: false });
+    assert.equal(getRuntimeChatMode(), "thread-temp");
+    lines = view.render(80, 24);
+    fullText = stripAnsi(lines.join("\n"));
+    assert.ok(fullText.includes("[thread-temp]"));
+
+    // Press 'm' again to cycle to stateless-temp
+    await view.handleKey({ name: "m", ctrl: false, shift: false, meta: false });
+    assert.equal(getRuntimeChatMode(), "stateless-temp");
+    lines = view.render(80, 24);
+    fullText = stripAnsi(lines.join("\n"));
+    assert.ok(fullText.includes("[stateless-temp]"));
+  } finally {
+    setRuntimeChatMode(initialMode);
+  }
 });
 
 test("TUI SyncView: handles keyboard toggles and model selection", async () => {

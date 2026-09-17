@@ -26,6 +26,7 @@ import { SyncView } from "./views/sync-view.ts";
 import { StorageView } from "./views/storage-view.ts";
 import { AccountsView } from "./views/accounts-view.ts";
 import { LogsView } from "./views/logs-view.ts";
+import { setRuntimeChatMode } from "../core/config.ts";
 import { loadTuiSettings, saveTuiSettings } from "./settings.ts";
 export class TuiApp {
   private screen: Screen;
@@ -39,6 +40,10 @@ export class TuiApp {
   private renderScheduled = false;
   constructor(initialTab?: number) {
     this.screen = new Screen();
+    const saved = loadTuiSettings();
+    if (saved.chat?.mode) {
+      setRuntimeChatMode(saved.chat.mode);
+    }
 
     this.views = [
       new StatusView(),
@@ -49,16 +54,10 @@ export class TuiApp {
       new LogsView(),
     ];
 
-    let resolvedTab = initialTab;
-    if (!resolvedTab || isNaN(resolvedTab)) {
-      const saved = loadTuiSettings();
-      if (saved.lastTab && saved.lastTab >= 1 && saved.lastTab <= 6) {
-        resolvedTab = saved.lastTab;
-      } else {
-        resolvedTab = 1;
-      }
+    let resolvedTab = initialTab ?? (saved.lastTab && saved.lastTab >= 1 && saved.lastTab <= 6 ? saved.lastTab : 1);
+    if (isNaN(resolvedTab)) {
+      resolvedTab = 1;
     }
-
     const tabIdx = Math.max(0, Math.min(this.views.length - 1, resolvedTab - 1));
     this.activeViewIndex = tabIdx;
   }

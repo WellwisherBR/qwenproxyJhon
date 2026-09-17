@@ -365,3 +365,54 @@ test("thread-temp mode header: completions payload uses chat_mode:local", async 
     mock.restore();
   }
 });
+test("dynamic runtime chat mode: changing global mode changes API completions without header", async () => {
+  const { setRuntimeChatMode, getRuntimeChatMode } = await import("../core/config.ts");
+  const mock = installCompletionCapture();
+  const initialMode = getRuntimeChatMode();
+
+  try {
+    // 1. Switch global API mode to stateless-temp
+    setRuntimeChatMode("stateless-temp");
+    assert.equal(getRuntimeChatMode(), "stateless-temp");
+
+    // Send request WITHOUT x-qwenproxy-chat-mode header (like Claude Code or Cursor)
+    let res = await app.fetch(
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen3.6-plus",
+          messages: [{ role: "user", content: "test global mode" }],
+          stream: true,
+        }),
+      }),
+    );
+    assert.strictEqual(res.status, 200);
+    await res.text();
+    let body = JSON.parse(mock.body());
+    assert.equal(body.chat_mode, "local", "global stateless-temp must use chat_mode:local");
+
+    // 2. Switch global API mode to thread
+    setRuntimeChatMode("thread");
+    assert.equal(getRuntimeChatMode(), "thread");
+
+    res = await app.fetch(
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen3.6-plus",
+          messages: [{ role: "user", content: "test global mode thread" }],
+          stream: true,
+        }),
+      }),
+    );
+    assert.strictEqual(res.status, 200);
+    await res.text();
+    body = JSON.parse(mock.body());
+    assert.equal(body.chat_mode, "normal", "global thread must use chat_mode:normal");
+  } finally {
+    setRuntimeChatMode(initialMode);
+    mock.restore();
+  }
+});

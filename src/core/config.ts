@@ -456,3 +456,28 @@ export function normalizeChatMode(
   }
   return "thread";
 }
+
+export function setRuntimeChatMode(
+  mode?: string | null,
+): "thread" | "thread-temp" | "stateless" | "stateless-temp" {
+  const normalized = normalizeChatMode(mode);
+  (config.qwen as { chatMode: "thread" | "thread-temp" | "stateless" | "stateless-temp" }).chatMode = normalized;
+  return normalized;
+}
+
+export function getRuntimeChatMode(): "thread" | "thread-temp" | "stateless" | "stateless-temp" {
+  return config.qwen.chatMode as "thread" | "thread-temp" | "stateless" | "stateless-temp";
+}
+
+export function cycleNextChatMode(): "thread" | "thread-temp" | "stateless" | "stateless-temp" {
+  const current = getRuntimeChatMode();
+  const order: Array<"thread" | "thread-temp" | "stateless-temp" | "stateless"> = [
+    "thread",
+    "thread-temp",
+    "stateless-temp",
+    "stateless",
+  ];
+  const idx = order.indexOf(current);
+  const next = order[(idx + 1) % order.length];
+  return setRuntimeChatMode(next);
+}

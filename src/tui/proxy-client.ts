@@ -190,10 +190,11 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
   const cacheBytesSaved = lastMetricsData?.cache?.bytesSaved;
 
   return {
-    online,
+    online: lastOnlineState,
     port,
     host,
-    overallStatus,
+    chatMode: config.qwen.chatMode as any,
+    overallStatus: lastOverallStatus,
     uptimeSeconds,
     rssMb,
     systemMemoryPct,

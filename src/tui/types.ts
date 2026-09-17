@@ -15,6 +15,7 @@ export interface ProxyStatusSnapshot {
   online: boolean;
   port: number;
   host: string;
+  chatMode?: "thread" | "thread-temp" | "stateless" | "stateless-temp";
   overallStatus?: string;
   uptimeSeconds?: number;
   rssMb?: number;

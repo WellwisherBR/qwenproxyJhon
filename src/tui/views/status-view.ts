@@ -7,6 +7,8 @@ import type { KeyEvent } from "../screen.ts";
 import { theme, glyphs, drawBox, pad, truncate } from "../theme.ts";
 import { fetchProxyStatus, resetAllCooldowns, formatUptime } from "../proxy-client.ts";
 import { ServerManager } from "../server-manager.ts";
+import { getRuntimeChatMode, cycleNextChatMode } from "../../core/config.ts";
+import { saveTuiSettings } from "../settings.ts";
 
 export function renderProgressBar(
   pct: number,
@@ -62,6 +64,7 @@ export class StatusView implements TuiView {
   private lastLeftW = 38;
   private lastActionRecarregarRow = 20;
   private lastActionZerarRow = 21;
+  private lastActionModoRow = 22;
   constructor() {
     this.refresh();
   }
@@ -86,6 +89,7 @@ export class StatusView implements TuiView {
     return [
       { key: "r", label: "Recarregar" },
       { key: "z", label: "Zerar Cooldowns" },
+      { key: "m", label: "Alternar Modo" },
     ];
   }
 
@@ -105,7 +109,9 @@ export class StatusView implements TuiView {
       if (
         col >= 2 &&
         col <= leftW - 1 &&
-        (row === this.lastActionRecarregarRow || row === this.lastActionZerarRow)
+        (row === this.lastActionRecarregarRow ||
+          row === this.lastActionZerarRow ||
+          row === this.lastActionModoRow)
       ) {
         if (this.hoveredActionRow !== row) {
           this.hoveredActionRow = row;
@@ -133,9 +139,15 @@ export class StatusView implements TuiView {
           this.setMessage(theme.green(`✓ Cooldowns zerados: ${cleared} conta(s) liberada(s)`));
           return true;
         }
+        if (row === this.lastActionModoRow) {
+          const nextMode = cycleNextChatMode();
+          saveTuiSettings({ chat: { mode: nextMode } });
+          await this.refresh();
+          this.setMessage(theme.green(`✓ Modo global da API: ${nextMode}`));
+          return true;
+        }
       }
     }
-
     if ((key.name === "r" || key.name === "R") && !key.ctrl) {
       await this.refresh();
       this.setMessage(theme.green("✓ Status atualizado"));
@@ -146,6 +158,14 @@ export class StatusView implements TuiView {
       const cleared = resetAllCooldowns();
       await this.refresh();
       this.setMessage(theme.green(`✓ Cooldowns zerados: ${cleared} conta(s) liberada(s)`));
+      return true;
+    }
+
+    if ((key.name === "m" || key.name === "M") && !key.ctrl) {
+      const nextMode = cycleNextChatMode();
+      saveTuiSettings({ chat: { mode: nextMode } });
+      await this.refresh();
+      this.setMessage(theme.green(`✓ Modo global da API: ${nextMode}`));
       return true;
     }
   }
@@ -214,8 +234,16 @@ export class StatusView implements TuiView {
     const leftContent: string[] = [
       `  ${theme.bold(lbl("Status:"))} ${onlineBadge}`,
       `  ${theme.bold(lbl("Base URL:"))} ${theme.cyan(baseUrl)}`,
+      `  ${theme.bold(lbl("Modo API:"))} ${
+        getRuntimeChatMode() === "thread"
+          ? theme.cyan("[thread]")
+          : getRuntimeChatMode() === "thread-temp"
+            ? theme.green("[thread-temp]")
+            : getRuntimeChatMode() === "stateless-temp"
+              ? theme.yellow("[stateless-temp]")
+              : theme.lavender("[stateless]")
+      } ${theme.dim("('M' alternar)")}`,
       `  ${theme.bold(lbl("Uptime:"))} ${theme.cyan(uptimeStr)}`,
-      `  ${theme.bold(lbl("Memória:"))} ${theme.cyan(ramStr)}`,
       `  ${theme.bold(lbl("Conexões:"))} ${connsStr}`,
       `  ${theme.dim("───────────────────────────────────────")}`,
       `  ${theme.bold("Tráfego & Performance:")}`,
@@ -235,10 +263,13 @@ export class StatusView implements TuiView {
     const zerarIdx = leftContent.length + 1;
     this.lastActionRecarregarRow = 5 + recarregarIdx;
     this.lastActionZerarRow = 5 + zerarIdx;
+    const modoIdx = leftContent.length + 2;
+    this.lastActionModoRow = 5 + modoIdx;
 
     leftContent.push(
       `   ${this.hoveredActionRow === this.lastActionRecarregarRow ? theme.bgHover(` ${theme.cyan("[ R ] Recarregar")} `) : ` ${theme.cyan("[ R ]")} Recarregar`}`,
       `   ${this.hoveredActionRow === this.lastActionZerarRow ? theme.bgHover(` ${theme.yellow("[ Z ] Zerar Cooldowns")} `) : ` ${theme.yellow("[ Z ]")} Zerar Cooldowns`}`,
+      `   ${this.hoveredActionRow === this.lastActionModoRow ? theme.bgHover(` ${theme.lavender("[ M ] Alternar Modo")} `) : ` ${theme.lavender("[ M ]")} Alternar Modo`}`,
     );
 
     const boxHeight = Math.max(contentH, leftContent.length + 2);

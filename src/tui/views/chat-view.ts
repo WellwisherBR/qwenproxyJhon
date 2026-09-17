@@ -9,6 +9,7 @@ import { streamChatCompletions, fetchLiveModels } from "../proxy-client.ts";
 import { ServerManager } from "../server-manager.ts";
 import { formatMarkdown, formatReasoning } from "../markdown.ts";
 import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
+import { setRuntimeChatMode, getRuntimeChatMode } from "../../core/config.ts";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -174,17 +175,21 @@ export class ChatView implements TuiView {
         this.effortSelectedIndex = effIdx;
       }
     }
-    const savedMode = saved.chat?.mode;
-    if (savedMode && ["thread", "thread-temp", "stateless", "stateless-temp"].includes(savedMode)) {
-      this.selectedChatMode = savedMode;
-      const mIdx = this.availableModes.findIndex((m) => m.id === savedMode);
-      if (mIdx !== -1) {
-        this.modeSelectedIndex = mIdx;
-      }
+    const runtimeMode = getRuntimeChatMode();
+    this.selectedChatMode = runtimeMode;
+    const mIdx = this.availableModes.findIndex((m) => m.id === runtimeMode);
+    if (mIdx !== -1) {
+      this.modeSelectedIndex = mIdx;
     }
     void this.refreshModels();
   }
   public onActivate(): void {
+    const runtimeMode = getRuntimeChatMode();
+    this.selectedChatMode = runtimeMode;
+    const mIdx = this.availableModes.findIndex((m) => m.id === runtimeMode);
+    if (mIdx !== -1) {
+      this.modeSelectedIndex = mIdx;
+    }
     void this.refreshModels();
   }
 
@@ -397,6 +402,7 @@ export class ChatView implements TuiView {
         if (row >= startRow && row < startRow + this.availableModes.length) {
           this.selectedChatMode = this.availableModes[row - startRow].id;
           this.isModeModalOpen = false;
+          setRuntimeChatMode(this.selectedChatMode);
           saveTuiSettings({
             chat: {
               model: this.availableModels[this.selectedModelIndex],
@@ -404,7 +410,7 @@ export class ChatView implements TuiView {
               mode: this.selectedChatMode,
             },
           });
-          this.statusNote = `Modo: ${this.availableModes[row - startRow].label}`;
+          this.statusNote = theme.green(`✓ Modo global da API alterado para: ${this.selectedChatMode}`);
           this.onNeedsRender?.();
           return true;
         }
@@ -428,6 +434,7 @@ export class ChatView implements TuiView {
       if (key.name === "return") {
         this.selectedChatMode = this.availableModes[this.modeSelectedIndex].id;
         this.isModeModalOpen = false;
+        setRuntimeChatMode(this.selectedChatMode);
         saveTuiSettings({
           chat: {
             model: this.availableModels[this.selectedModelIndex],
@@ -435,7 +442,7 @@ export class ChatView implements TuiView {
             mode: this.selectedChatMode,
           },
         });
-        this.statusNote = `Modo: ${this.availableModes[this.modeSelectedIndex].label}`;
+        this.statusNote = theme.green(`✓ Modo global da API alterado para: ${this.selectedChatMode}`);
         this.onNeedsRender?.();
         return true;
       }
