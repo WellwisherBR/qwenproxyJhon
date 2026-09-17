@@ -148,6 +148,9 @@ export async function runUpdateCommand(): Promise<void> {
   });
   if (updateProc.status === 0) {
     console.log(`\n✅ [QwenProxy] Atualizado com sucesso para a versão v${latestVersion}!`);
+    if (process.platform === "win32") {
+      console.log("💡 (Nota: Avisos eventuais de 'npm warn cleanup' no Windows são normais devido ao bloqueio temporário de executáveis durante a auto-atualização e não afetam o funcionamento).");
+    }
     console.log("👉 Digite 'qpx' para iniciar a nova versão.\n");
   } else {
     console.error(`\n❌ [QwenProxy] Falha ao atualizar automaticamente com ${cmd}.`);

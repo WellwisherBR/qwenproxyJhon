@@ -99,6 +99,7 @@ if (firstArg === "start" || rawArgs.includes("--server")) {
 } else if (firstArg === "login") {
   scriptFile = "src/login.ts";
   scriptArgs = rawArgs.slice(1);
+} else {
   // Pass through remaining options to index.ts with default TUI flag
   scriptFile = "src/index.ts";
   scriptArgs = ["--tui", ...rawArgs];
