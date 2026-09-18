@@ -35,6 +35,12 @@ export class SyncView implements TuiView {
   private syncAllModels = true;
   private actionLog: string[] = [];
   private lastLeftW = 46;
+  private lastClientStartRow = 8;
+  private lastClientEndRow = 17;
+  private lastModelRow = 20;
+  private lastScopeRow = 21;
+  private lastSyncRow = 24;
+  private lastRestoreRow = 25;
   constructor() {
     this.detectClients();
   }
@@ -99,27 +105,62 @@ export class SyncView implements TuiView {
       const { row, col } = key.mouse;
       const leftW = this.lastLeftW || 46;
       if (col >= 2 && col <= leftW - 1) {
-        if (row >= 8 && row <= 17) {
-          const targetRow = row - 8;
+        if (row >= this.lastClientStartRow && row <= this.lastClientEndRow) {
+          const targetRow = row - this.lastClientStartRow;
+          let changed = false;
           if (this.selectedRowIndex !== targetRow) {
             this.selectedRowIndex = targetRow;
-            return true;
+            changed = true;
           }
-        } else if (row === 20 || row === 14) {
+          if (this.hoveredActionRow !== null) {
+            this.hoveredActionRow = null;
+            changed = true;
+          }
+          if (changed) return true;
+        } else if (row === this.lastModelRow) {
+          let changed = false;
           if (this.selectedRowIndex !== 10) {
             this.selectedRowIndex = 10;
-            return true;
+            changed = true;
           }
-        } else if (row === 21 || row === 15) {
+          if (this.hoveredActionRow !== null) {
+            this.hoveredActionRow = null;
+            changed = true;
+          }
+          if (changed) return true;
+        } else if (row === this.lastScopeRow) {
+          let changed = false;
           if (this.selectedRowIndex !== 11) {
             this.selectedRowIndex = 11;
-            return true;
+            changed = true;
           }
-        } else if (row === 24 || row === 18 || row === 25 || row === 19) {
-          if (this.hoveredActionRow !== row) {
-            this.hoveredActionRow = row;
-            return true;
+          if (this.hoveredActionRow !== null) {
+            this.hoveredActionRow = null;
+            changed = true;
           }
+          if (changed) return true;
+        } else if (row === this.lastSyncRow) {
+          let changed = false;
+          if (this.selectedRowIndex !== 12) {
+            this.selectedRowIndex = 12;
+            changed = true;
+          }
+          if (this.hoveredActionRow !== this.lastSyncRow) {
+            this.hoveredActionRow = this.lastSyncRow;
+            changed = true;
+          }
+          if (changed) return true;
+        } else if (row === this.lastRestoreRow) {
+          let changed = false;
+          if (this.selectedRowIndex !== 13) {
+            this.selectedRowIndex = 13;
+            changed = true;
+          }
+          if (this.hoveredActionRow !== this.lastRestoreRow) {
+            this.hoveredActionRow = this.lastRestoreRow;
+            changed = true;
+          }
+          if (changed) return true;
         } else if (this.hoveredActionRow !== null) {
           this.hoveredActionRow = null;
           return true;
@@ -136,35 +177,40 @@ export class SyncView implements TuiView {
       const leftW = this.lastLeftW || 46;
       if (col >= 2 && col <= leftW - 1) {
         // Rows 8..17: Toggle client
-        if (row >= 8 && row <= 17) {
-          const client = this.clients[row - 8];
+        if (row >= this.lastClientStartRow && row <= this.lastClientEndRow) {
+          const client = this.clients[row - this.lastClientStartRow];
           if (client) {
             client.selected = !client.selected;
-            this.selectedRowIndex = row - 8;
+            this.selectedRowIndex = row - this.lastClientStartRow;
+            this.hoveredActionRow = null;
             return true;
           }
         }
         // Model selector
-        if (row === 20 || row === 14) {
+        if (row === this.lastModelRow) {
           this.modelIndex = (this.modelIndex + 1) % this.availableModels.length;
           this.selectedRowIndex = 10;
+          this.hoveredActionRow = null;
           return true;
         }
         // Scope selector
-        if (row === 21 || row === 15) {
+        if (row === this.lastScopeRow) {
           this.syncAllModels = !this.syncAllModels;
           this.selectedRowIndex = 11;
+          this.hoveredActionRow = null;
           return true;
         }
         // Sincronizar button
-        if (row === 24 || row === 18) {
+        if (row === this.lastSyncRow) {
           this.selectedRowIndex = 12;
+          this.hoveredActionRow = this.lastSyncRow;
           this.executeSync();
           return true;
         }
         // Restaurar button
-        if (row === 25 || row === 19) {
+        if (row === this.lastRestoreRow) {
           this.selectedRowIndex = 13;
+          this.hoveredActionRow = this.lastRestoreRow;
           this.executeRollback();
           return true;
         }
@@ -294,6 +340,12 @@ export class SyncView implements TuiView {
     const contentH = Math.max(22, height);
     const leftW = Math.max(48, Math.floor(width * 0.52));
     this.lastLeftW = leftW;
+    this.lastClientStartRow = 8;
+    this.lastClientEndRow = 8 + this.clients.length - 1;
+    this.lastModelRow = this.lastClientEndRow + 3;
+    this.lastScopeRow = this.lastModelRow + 1;
+    this.lastSyncRow = this.lastScopeRow + 3;
+    this.lastRestoreRow = this.lastSyncRow + 1;
     const rightW = Math.max(30, width - leftW - 1);
 
     // Left Panel: Options and Selectors
@@ -347,13 +399,13 @@ export class SyncView implements TuiView {
     leftContent.push(`  ${theme.bold("Ações:")}`);
     // Row index 12: Sincronizar
     const isSyncFocused = this.selectedRowIndex === 12;
-    const isSyncHovered = this.hoveredActionRow === 24 || this.hoveredActionRow === 18;
+    const isSyncHovered = this.hoveredActionRow === this.lastSyncRow;
     const syncLine = `    ${isSyncHovered || isSyncFocused ? theme.bgHover(` ${theme.cyan("[ Enter ] Sincronizar")} `) : `${theme.cyan("[ Enter ]")} Sincronizar`}`;
     leftContent.push(syncLine);
 
     // Row index 13: Restaurar
     const isRestoreFocused = this.selectedRowIndex === 13;
-    const isRestoreHovered = this.hoveredActionRow === 25 || this.hoveredActionRow === 19;
+    const isRestoreHovered = this.hoveredActionRow === this.lastRestoreRow;
     const restoreLine = `    ${isRestoreHovered || isRestoreFocused ? theme.bgHover(` ${theme.yellow("[ R ] Restaurar")} `) : `${theme.yellow("[ R ]")} Restaurar`}`;
     leftContent.push(restoreLine);
 

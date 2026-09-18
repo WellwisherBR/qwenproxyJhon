@@ -341,8 +341,9 @@ export class ChatView implements TuiView {
     if (this.isEffortModalOpen) {
       if (key.name === "hover" && key.mouse) {
         const { row } = key.mouse;
-        if (row >= 9 && row < 9 + this.availableEfforts.length) {
-          const hoverIdx = row - 9;
+        const startRow = 12;
+        if (row >= startRow && row < startRow + this.availableEfforts.length) {
+          const hoverIdx = row - startRow;
           if (this.effortSelectedIndex !== hoverIdx) {
             this.effortSelectedIndex = hoverIdx;
             this.onNeedsRender?.();
@@ -352,8 +353,10 @@ export class ChatView implements TuiView {
       }
       if (key.name === "click" && key.mouse) {
         const { row } = key.mouse;
-        if (row >= 9 && row < 9 + this.availableEfforts.length) {
-          this.selectedEffort = this.availableEfforts[row - 9].id;
+        const startRow = 12;
+        if (row >= startRow && row < startRow + this.availableEfforts.length) {
+          const chosenIdx = row - startRow;
+          this.selectedEffort = this.availableEfforts[chosenIdx].id;
           this.isEffortModalOpen = false;
           const currentM = this.availableModels[this.selectedModelIndex];
           saveTuiSettings({
@@ -362,7 +365,7 @@ export class ChatView implements TuiView {
               effort: this.selectedEffort,
             },
           });
-          this.statusNote = `Modelo: ${currentM} | Effort: ${this.availableEfforts[row - 9].label}`;
+          this.statusNote = `Modelo: ${currentM} | Effort: ${this.availableEfforts[chosenIdx].label}`;
           this.onNeedsRender?.();
           return true;
         }
@@ -410,7 +413,7 @@ export class ChatView implements TuiView {
     if (this.isModeModalOpen) {
       if (key.name === "hover" && key.mouse) {
         const { row } = key.mouse;
-        const startRow = 11;
+        const startRow = 12;
         if (row >= startRow && row < startRow + this.availableModes.length) {
           const hoverIdx = row - startRow;
           if (this.modeSelectedIndex !== hoverIdx) {
@@ -422,9 +425,10 @@ export class ChatView implements TuiView {
       }
       if (key.name === "click" && key.mouse) {
         const { row } = key.mouse;
-        const startRow = 11;
+        const startRow = 12;
         if (row >= startRow && row < startRow + this.availableModes.length) {
-          this.selectedChatMode = this.availableModes[row - startRow].id;
+          const chosenIdx = row - startRow;
+          this.selectedChatMode = this.availableModes[chosenIdx].id;
           this.isModeModalOpen = false;
           setRuntimeChatMode(this.selectedChatMode);
           saveTuiSettings({

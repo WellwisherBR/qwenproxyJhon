@@ -391,13 +391,13 @@ test("TUI ChatView: selects model and its reasoning effort (F2/F3 and mouse)", a
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Nível de Raciocínio / Effort"));
 
-  // 5. Select Low (Fast) via mouse click on row 11
+  // 5. Select Low (Fast) via mouse click on row 14 (options start at row 12: 12=High, 13=Med, 14=Low)
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 10, row: 11 },
+    mouse: { type: "click", button: "left", col: 10, row: 14 },
   });
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Effort: Low (Fast)"));
@@ -425,8 +425,8 @@ test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async ()
   render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Modo: thread-temp"));
 
-  // 3. Test mouse hover and selection on all 4 mode rows
-  // Row 11 is thread (index 0)
+  // 3. Test mouse hover and selection on all 4 mode rows (options start at row 12)
+  // Row 12 is thread (index 0)
   await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
   assert.equal((view as any).isModeModalOpen, true);
   await view.handleKey({
@@ -434,21 +434,11 @@ test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async ()
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "hover", col: 15, row: 11 },
+    mouse: { type: "hover", col: 15, row: 12 },
   });
   assert.equal((view as any).modeSelectedIndex, 0);
 
-  // Row 12 is thread-temp (index 1)
-  await view.handleKey({
-    name: "hover",
-    ctrl: false,
-    shift: false,
-    meta: false,
-    mouse: { type: "hover", col: 15, row: 12 },
-  });
-  assert.equal((view as any).modeSelectedIndex, 1);
-
-  // Row 13 is stateless-temp (index 2)
+  // Row 13 is thread-temp (index 1)
   await view.handleKey({
     name: "hover",
     ctrl: false,
@@ -456,9 +446,9 @@ test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async ()
     meta: false,
     mouse: { type: "hover", col: 15, row: 13 },
   });
-  assert.equal((view as any).modeSelectedIndex, 2);
+  assert.equal((view as any).modeSelectedIndex, 1);
 
-  // Row 14 is stateless (index 3)
+  // Row 14 is stateless-temp (index 2)
   await view.handleKey({
     name: "hover",
     ctrl: false,
@@ -466,31 +456,40 @@ test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async ()
     meta: false,
     mouse: { type: "hover", col: 15, row: 14 },
   });
+  assert.equal((view as any).modeSelectedIndex, 2);
+
+  // Row 15 is stateless (index 3)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: 15, row: 15 },
+  });
   assert.equal((view as any).modeSelectedIndex, 3);
 
-  // Click on Row 13 selects stateless-temp
+  // Click on Row 14 selects stateless-temp
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 15, row: 13 },
+    mouse: { type: "click", button: "left", col: 15, row: 14 },
   });
   assert.equal((view as any).isModeModalOpen, false);
   assert.equal((view as any).selectedChatMode, "stateless-temp");
 
-  // Re-open with F4 and click on Row 11 selects thread
+  // Re-open with F4 and click on Row 12 selects thread
   await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
   await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: 15, row: 11 },
+    mouse: { type: "click", button: "left", col: 15, row: 12 },
   });
   assert.equal((view as any).isModeModalOpen, false);
   assert.equal((view as any).selectedChatMode, "thread");
-
   // 4. Cancel with Escape
   await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
   assert.equal((view as any).isModeModalOpen, true);
@@ -1632,6 +1631,9 @@ test("TUI StatusView: mouse click and 'c' shortcut copy Base URL to clipboard wi
     mouse: { type: "hover", row: baseUrlRow, col: 10 },
   });
   assert.equal((view as any).isBaseUrlHovered, true, "Hovering row 6 must set isBaseUrlHovered");
+  const renderTextOnHover = view.render(80, 24).join("\n");
+  assert.ok(!renderTextOnHover.includes("Cop..."), "Must not display truncated Cop... emoji");
+  assert.ok(!renderTextOnHover.includes("📋"), "Must not append emoji to Base URL");
 
   // 2. Mouse click on Base URL row
   await view.handleKey({
@@ -1660,6 +1662,85 @@ test("TUI StatusView: mouse click and 'c' shortcut copy Base URL to clipboard wi
     char: "c",
   });
   assert.equal((view as any).copiedRecently, true, "Pressing 'c' must also copy base URL");
+});
+
+test("TUI SyncView: hovering near 'Modelo:' (rows 18 and 19) does not trigger phantom action hover or dual selection", async () => {
+  const view = new SyncView();
+  view.render(80, 24);
+
+  // Focus Aider (client index 9)
+  (view as any).selectedRowIndex = 9;
+
+  // Hover on row 18 (empty line above Modelo:)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 18, col: 10 },
+  });
+  assert.equal((view as any).hoveredActionRow, null, "Row 18 must not trigger action hover");
+
+  // Hover on row 19 (the text 'Modelo:')
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 19, col: 10 },
+  });
+  assert.equal((view as any).hoveredActionRow, null, "Row 19 must not trigger action hover");
+
+  const rendered = view.render(80, 24).join("\n");
+  // Ensure [ Enter ] Sincronizar is NOT hovered
+  assert.ok(!rendered.includes("[ Enter ] Sincronizar \x1b[49m"), "Sync button must not be hovered when mouse is at Modelo:");
+
+  // Hover on row 20 (Model selector) moves selection cleanly to 10
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 20, col: 10 },
+  });
+  assert.equal((view as any).selectedRowIndex, 10, "Row 20 must select model");
+  assert.equal((view as any).hoveredActionRow, null, "Row 20 must not hover actions");
+});
+
+test("TUI ChatView: effort modal rows precisely map row 12 to High, 13 to Medium, 14 to Low", async () => {
+  const view = new ChatView();
+  await view.handleKey({ name: "f3", ctrl: false, shift: false, meta: false });
+  assert.equal((view as any).isEffortModalOpen, true);
+
+  // Row 12 -> High (Thinking)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 12, col: 10 },
+  });
+  assert.equal((view as any).effortSelectedIndex, 0);
+
+  // Row 13 -> Medium (Auto)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 13, col: 10 },
+  });
+  assert.equal((view as any).effortSelectedIndex, 1);
+
+  // Row 14 -> Low (Fast)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: 14, col: 10 },
+  });
+  assert.equal((view as any).effortSelectedIndex, 2);
 });
 
 test("TUI Theme: setClipboardText and getClipboardText preserve full Unicode emojis and accents", () => {

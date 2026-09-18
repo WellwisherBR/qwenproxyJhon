@@ -271,16 +271,11 @@ export class StatusView implements TuiView {
     if (data?.waitingStreams && data.waitingStreams > 0) {
       connsStr += theme.peach(` (${data.waitingStreams} na fila)`);
     }
-    const fitsBadge = innerLeftW >= 15 + baseUrl.length + 11;
     let urlDisplay: string;
     if (this.copiedRecently) {
-      urlDisplay = fitsBadge
-        ? `${theme.bold(theme.green(baseUrl))} ${theme.bold(theme.green("✓ Copiado!"))}`
-        : theme.bold(theme.green(baseUrl));
+      urlDisplay = theme.bold(theme.green(baseUrl));
     } else if (this.isBaseUrlHovered) {
-      urlDisplay = fitsBadge
-        ? `${theme.bgHover(` ${theme.bold(theme.white(baseUrl))} `)} ${theme.cyan("📋 Copiar")}`
-        : theme.bgHover(` ${theme.bold(theme.white(baseUrl))} `);
+      urlDisplay = theme.bold(theme.underline(theme.cyan(baseUrl)));
     } else {
       urlDisplay = theme.cyan(baseUrl);
     }
