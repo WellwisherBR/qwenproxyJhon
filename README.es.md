@@ -164,9 +164,7 @@ El sincronizador configura de forma transparente:
 - **OpenAI Codex CLI** (`~/.codex/config.toml`) — Protocolo nativo Responses (`/v1/responses`).
 - **OpenCode** (`~/.config/opencode/opencode.jsonc`) — Proveedor compatible con OpenAI.
 - **Cline, OMP, Zed, Kilo Code y Hermes Agent**.
-
-> **Consejo de Restauración:** Puedes restaurar las configuraciones originales en cualquier momento ejecutando `qpx sync -- --restore`.
-
+> **Consejo de Restauración:** Puedes restaurar las configuraciones originales en cualquier momento ejecutando `qpx sync --restore` (o `npm run sync:restore`).
 ### 5. ¡Listo para Programar!
 
 Ejecuta tu agente favorito con total normalidad:

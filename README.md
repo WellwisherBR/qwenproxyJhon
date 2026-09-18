@@ -164,9 +164,7 @@ The synchronizer configures:
 - **OpenAI Codex CLI** (`~/.codex/config.toml`) — Native Responses protocol (`/v1/responses`).
 - **OpenCode** (`~/.config/opencode/opencode.jsonc`) — OpenAI-compatible provider.
 - **Cline, OMP, Zed, Kilo Code, and Hermes Agent**.
-
-> **Rollback tip:** Restore previous client configuration backups anytime with `qpx sync -- --restore`.
-
+> **Rollback tip:** Restore previous client configuration backups anytime with `qpx sync --restore` (or `npm run sync:restore`).
 ### 5. Start Coding!
 
 Launch your favorite coding tool as you normally would:

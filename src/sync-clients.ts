@@ -73,8 +73,8 @@ Exemplos:
   npm run sync zed            # Sincroniza apenas o Zed Editor
   npm run sync aider          # Sincroniza apenas o Aider
   npm run sync claude codex   # Sincroniza múltiplos clientes específicos
-  npm run sync -- --list      # Lista status de detecção de todos os 10 clientes
-  npm run sync -- --restore   # Restaura as configurações originais (rollback)
+  npm run sync --list         # Lista status de detecção de todos os 10 clientes (ou qpx sync --list)
+  npm run sync --restore      # Restaura as configurações originais (ou qpx sync --restore)
 
 Opções:
   --client <nome>    Nome do cliente (hermes, opencode, claude, openclaw, kilo, cline, omp, codex, zed, aider)
@@ -193,8 +193,7 @@ async function main() {
   console.log("--------------------------------------------------");
   console.log(`✨ ${count} cliente(s) sincronizado(s) com zero perda de outras configs/provedores!`);
   console.log("💡 Para desfazer e restaurar a qualquer momento:");
-  console.log("   npm run sync -- --restore");
-  console.log("==================================================\n");
+  console.log("   qpx sync --restore (ou npm run sync --restore)");
 }
 
 main().catch((err) => {
