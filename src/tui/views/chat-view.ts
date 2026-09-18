@@ -1095,47 +1095,32 @@ export class ChatView implements TuiView {
         }
       }
       for (const msg of this.messages) {
-        chatContent.push("");
         if (msg.role === "user") {
-          const userLines = msg.content.split(/\r?\n/);
+          chatContent.push("");
+          const userLines = wrapContentLine(msg.content, innerChatW - 6);
           for (let u = 0; u < userLines.length; u++) {
-            if (u === 0) {
-              chatContent.push(`  ${theme.blue(glyphs.pointer + " Você:")} ${theme.white(userLines[u])}`);
-            } else {
-              chatContent.push(`    ${theme.white(userLines[u])}`);
-            }
+            chatContent.push(`  ${theme.cyan("▌")} ${theme.bold(theme.white(userLines[u]))}`);
           }
+          chatContent.push("");
         } else {
           const messageModel = msg.model || currentModel;
           chatContent.push(`  ${theme.green(glyphs.bullet + " Qwen (" + messageModel + "):")}`);
-          // 1. Dedicated Thinking (Reasoning) Container - Opaque, Dimmed, and Cached
+
+          // 1. OpenCode-style Thinking (Reasoning): Clean, indented, dimmed and unboxed
           if (msg.reasoning && msg.reasoning.trim().length > 0) {
-            const thinkWidth = Math.max(20, innerChatW - 4);
-            let thinkLines: string[];
-            if (msg.cachedWidth === innerChatW && msg.cachedReasoningBox) {
-              thinkLines = msg.cachedReasoningBox;
+            chatContent.push("");
+            const isStillThinking = this.isGenerating && !msg.content && this.messages.indexOf(msg) === this.messages.length - 1;
+            const spinner = this.spinnerFrames[this.spinnerIndex] || "⠋";
+
+            if (isStillThinking) {
+              chatContent.push(`    ${theme.yellow(`🧠 ${spinner} Raciocinando...`)}`);
             } else {
-              const rLines = formatReasoning(msg.reasoning, thinkWidth - 4).map((l) => ` ${l}`);
-              if (this.isGenerating && !msg.content && this.messages.indexOf(msg) === this.messages.length - 1) {
-                const spinner = this.spinnerFrames[this.spinnerIndex] || "⠋";
-                rLines.push("");
-                rLines.push(` ${theme.yellow(`${spinner} Raciocinando...`)}`);
-              }
-              thinkLines = drawBox({
-                title: "🧠 Raciocínio",
-                width: thinkWidth,
-                borderColor: theme.borderInactive,
-                titleColor: theme.muted,
-                content: rLines,
-              });
-              if (!this.isGenerating) {
-                msg.cachedReasoningBox = thinkLines;
-                msg.cachedWidth = innerChatW;
-              }
+              chatContent.push(`    ${theme.yellow("🧠 Raciocínio:")}`);
             }
 
-            for (const line of thinkLines) {
-              chatContent.push(`  ${line}`);
+            const rLines = formatReasoning(msg.reasoning, innerChatW - 8);
+            for (const r of rLines) {
+              chatContent.push(`      ${r}`);
             }
             chatContent.push("");
           }
@@ -1160,11 +1145,14 @@ export class ChatView implements TuiView {
             chatContent.push(`    ${theme.yellow(`${spinner} Pensando...`)}`);
           }
 
+          // 3. OpenCode-style execution badge with model and timing metadata
           if (msg.totalTimeMs) {
+            chatContent.push("");
             chatContent.push(
-              `    ${theme.dim(`[TTFB: ${msg.ttfbMs}ms | Total: ${(msg.totalTimeMs / 1000).toFixed(2)}s]`)}`,
+              `    ${theme.cyan("▣")} ${theme.bold("Qwen")} ${theme.dim("·")} ${theme.cyan(messageModel)} ${theme.dim("·")} ${theme.dim(`${(msg.totalTimeMs / 1000).toFixed(2)}s`)} ${theme.dim(`(TTFB ${msg.ttfbMs}ms)`)}`,
             );
           }
+          chatContent.push("");
         }
       }
 
@@ -1266,13 +1254,18 @@ export class ChatView implements TuiView {
       ? `${spinner} Gerando... (Esc para cancelar)`
       : actionLabel;
 
+    const defaultFooter = `${currentModel} · ${isReasoning ? `Effort: ${this.selectedEffort}` : currentInfo.category} · Modo: ${this.selectedChatMode}`;
+    const inputFooter = this.statusNote
+      ? stripAnsi(this.statusNote)
+      : defaultFooter;
+
     const inputBox = drawBox({
       title: inputTitle,
       width,
       height: 3,
       borderColor: this.isGenerating ? theme.yellow : theme.borderActive,
       titleColor: this.isGenerating ? theme.yellow : theme.cyan,
-      footer: this.statusNote ? stripAnsi(this.statusNote) : undefined,
+      footer: inputFooter,
       content: inputContent,
     });
     totalLines.push(...inputBox);
