@@ -167,7 +167,7 @@ const envSchema = z
     QWEN_BROWSER_ONLY_FETCH: z.string().default("true"),
     QWEN_MAP_OPENAI_MODELS: z.string().default("true"),
     QWEN_MAX_PROMPT_BYTES: z.string().default("0"),
-    QWEN_MAX_PERSONALIZATION_BYTES: z.string().default("200000"),
+    QWEN_MAX_PERSONALIZATION_BYTES: z.string().default("500000"),
     CONTEXT_METER_ENABLED: z.string().default("true"),
     CONTEXT_METER_WINDOW_TOKENS: z.string().default("0"),
     CONTEXT_METER_REPORT_USAGE: z.string().default("true"),
