@@ -39,6 +39,7 @@ export const theme = {
   borderInactive: (s: string) => `\x1b[38;2;53;53;61m${s}\x1b[39m`, // #35353d (Qwen Line Primary Border)
   bgSelected: (s: string) => `\x1b[48;2;45;35;85m\x1b[38;2;247;248;252m${s}\x1b[49m\x1b[39m`, // #2d2355 Deep Violet + #f7f8fc White
   bgHover: (s: string) => `\x1b[48;2;58;46;110m\x1b[38;2;247;248;252m${s}\x1b[49m\x1b[39m`, // #3a2e6e Violet Hover + #f7f8fc White
+  bgUserCard: (s: string) => `\x1b[48;2;38;40;58m${s}\x1b[49m`, // #26283a (Catppuccin Surface / Distinct Lighter User Message Card)
   bold: (s: string) => `\x1b[1m${s}\x1b[22m`,
   italic: (s: string) => `\x1b[3m${s}\x1b[23m`,
   dim: (s: string) => `\x1b[2m${s}\x1b[22m`,

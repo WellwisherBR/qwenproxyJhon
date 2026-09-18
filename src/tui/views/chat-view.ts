@@ -1097,10 +1097,21 @@ export class ChatView implements TuiView {
       for (const msg of this.messages) {
         if (msg.role === "user") {
           chatContent.push("");
-          const userLines = wrapContentLine(msg.content, innerChatW - 6);
-          for (let u = 0; u < userLines.length; u++) {
-            chatContent.push(`  ${theme.cyan("▌")} ${theme.bold(theme.white(userLines[u]))}`);
+          const cardW = Math.max(20, innerChatW - 4);
+          const userLines = wrapContentLine(msg.content, cardW - 4);
+
+          // Top padding inside user card (gives height and breathability)
+          chatContent.push(`  ${theme.cyan("▌")}${theme.bgUserCard(" ".repeat(cardW))}`);
+
+          // Content lines with distinct lighter background
+          for (const u of userLines) {
+            chatContent.push(
+              `  ${theme.cyan("▌")}${theme.bgUserCard("   " + pad(theme.bold(theme.white(u)), cardW - 3))}`,
+            );
           }
+
+          // Bottom padding inside user card
+          chatContent.push(`  ${theme.cyan("▌")}${theme.bgUserCard(" ".repeat(cardW))}`);
           chatContent.push("");
         } else {
           const messageModel = msg.model || currentModel;
