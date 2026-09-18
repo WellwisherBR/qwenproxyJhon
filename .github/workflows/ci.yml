@@ -32,7 +32,7 @@ jobs:
         run: npm run typecheck
 
       - name: Mock tests
-        run: npm run test:mock
+        run: npm run test:mock:fast
         env:
           CI: true
           TEST_MOCK_QWEN_AUTH: true

@@ -45,8 +45,13 @@ test("Playwright Storage State: loadStorageState validates JSON and cookies arra
 
 test("Playwright Storage State: saveStorageState bounds hung storageState call with timeout", async () => {
   const accountId = "hang-test-acc";
+  let hangTimer: NodeJS.Timeout;
   const fakeContext: any = {
-    storageState: () => new Promise(() => {}), // never resolves
+    storageState: () =>
+      new Promise((resolve) => {
+        hangTimer = setTimeout(() => resolve({ cookies: [], origins: [] }), 6000);
+        hangTimer.unref?.();
+      }),
   };
   const start = Date.now();
   await saveStorageState(fakeContext, accountId);
@@ -97,12 +102,16 @@ test("isPageLoggedIn detects authenticated session via API/DOM and rejects unaut
 test("isPageLoggedIn bounds a hanging in-page probe instead of waiting forever", async () => {
   // page.evaluate ignores Playwright's default timeouts: on a WAF-blocked page
   // the in-page fetch can stay pending indefinitely. The probe must time out.
+  let pageTimer: NodeJS.Timeout;
   const hangingPage: any = {
     isClosed: () => false,
     url: () => "https://chat.qwen.ai/",
-    evaluate: () => new Promise<boolean>(() => {}),
+    evaluate: () =>
+      new Promise<boolean>((resolve) => {
+        pageTimer = setTimeout(() => resolve(false), 2000);
+        pageTimer.unref?.();
+      }),
   };
-
   const startedAt = Date.now();
   assert.equal(await isPageLoggedIn(hangingPage, 1_000), false);
   const elapsed = Date.now() - startedAt;
