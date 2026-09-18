@@ -33,12 +33,14 @@ export function syncClaudeCode(options: SyncOptions): ClientSyncResult {
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "qwen3.7-plus",
       ANTHROPIC_DEFAULT_OPUS_MODEL: model,
       CLAUDE_CODE_MAX_CONTEXT_TOKENS: "1000000",
+      CLAUDE_CODE_DISABLE_ARTIFACT: "1",
     };
 
     const updatedSettings = {
       ...existingSettings,
       env,
       model,
+      enableArtifact: false,
     };
 
     fs.writeFileSync(filePath, JSON.stringify(updatedSettings, null, 2) + "\n", "utf-8");

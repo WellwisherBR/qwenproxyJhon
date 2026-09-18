@@ -102,8 +102,9 @@ test("sync Claude Code: preserves existing settings, adds QwenProxy env, and res
   assert.equal(updated.env.ANTHROPIC_AUTH_TOKEN, "test-token");
   assert.equal(updated.env.ANTHROPIC_MODEL, "qwen3.8-max");
   assert.equal(updated.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, "1000000");
+  assert.equal(updated.env.CLAUDE_CODE_DISABLE_ARTIFACT, "1");
+  assert.equal(updated.enableArtifact, false);
   assert.equal(updated.model, "qwen3.8-max");
-
   // Restore
   const restored = restoreClaudeCode(filePath, res.backupPath);
   assert.equal(restored.success, true);
