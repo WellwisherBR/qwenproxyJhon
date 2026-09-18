@@ -2043,18 +2043,23 @@ export class StreamingToolParser {
             recoveryAttempts: truncRecoveryAttempts,
           });
           logger.warn(
-            "[parser] Dropping unrecoverable unclosed tool call at end of stream",
-            {
-              toolName,
-              category: "truncated",
-              contentLength: trimmed.length,
-              content: trimmed.substring(0, 2000),
-              failureReason:
-                "stream ended before tool_call closing tag; content too incomplete to reconstruct",
-              recoveryAttempts: truncRecoveryAttempts,
-              emittedToolCallsSoFar: this.emittedToolCallCount,
-            },
+            `[parser] Dropping unrecoverable unclosed tool call (${toolName || "unknown"}) at end of stream: stream ended before closing tag (${trimmed.length} chars)`,
           );
+          if (isToolcallDebugEnabled()) {
+            logger.debug(
+              "[parser] Unclosed tool call payload details",
+              {
+                toolName,
+                category: "truncated",
+                contentLength: trimmed.length,
+                content: trimmed.substring(0, 2000),
+                failureReason:
+                  "stream ended before tool_call closing tag; content too incomplete to reconstruct",
+                recoveryAttempts: truncRecoveryAttempts,
+                emittedToolCallsSoFar: this.emittedToolCallCount,
+              },
+            );
+          }
           if (
             this.emittedToolCallCount === 0 &&
             this.pendingLeadIn.trim().length > 0

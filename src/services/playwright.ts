@@ -2335,19 +2335,30 @@ export async function captureQwenHeaders(
         1,
         Math.min(CHAT_INPUT_ACTION_TIMEOUT_MS, remainingBudgetMs()),
       );
-      try {
-        await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
+      let interactionSucceeded = false;
+      for (let interactionTry = 1; interactionTry <= 2; interactionTry++) {
         if (settled || page.isClosed()) return;
-        await page.fill(inputSelector, "", { timeout: inputActionTimeoutMs });
-        if (settled || page.isClosed()) return;
-        await page.type(inputSelector, "a", {
-          delay: 100,
-          timeout: inputActionTimeoutMs,
-        });
-      } catch {
+        try {
+          await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
+          if (settled || page.isClosed()) return;
+          await page.fill(inputSelector, "", { timeout: inputActionTimeoutMs });
+          if (settled || page.isClosed()) return;
+          await page.type(inputSelector, "a", {
+            delay: 100,
+            timeout: inputActionTimeoutMs,
+          });
+          interactionSucceeded = true;
+          break;
+        } catch {
+          if (settled || page.isClosed()) return;
+          if (interactionTry === 1) {
+            await sleep(300);
+          }
+        }
+      }
+      if (!interactionSucceeded) {
         // The input detached mid-interaction (challenge overlay, SPA
-        // re-render): same diagnosis as never appearing — only a fresh load
-        // recovers it.
+        // re-render): only a fresh load recovers it.
         if (settled || page.isClosed()) return;
         console.warn(
           `⏱️  [Playwright] Chat input interaction failed for ${accountId} (attempt ${attempt}); reloading`,
