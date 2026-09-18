@@ -1104,7 +1104,6 @@ export class ChatView implements TuiView {
           chatContent.push("");
         } else {
           const messageModel = msg.model || currentModel;
-          chatContent.push(`  ${theme.green(glyphs.bullet + " Qwen (" + messageModel + "):")}`);
 
           // 1. OpenCode-style Thinking (Reasoning): Clean, indented, dimmed and unboxed
           if (msg.reasoning && msg.reasoning.trim().length > 0) {
@@ -1146,10 +1145,14 @@ export class ChatView implements TuiView {
           }
 
           // 3. OpenCode-style execution badge with model and timing metadata
-          if (msg.totalTimeMs) {
+          const isDoneGenerating = !this.isGenerating || this.messages.indexOf(msg) !== this.messages.length - 1;
+          if (isDoneGenerating && (msg.content || msg.reasoning)) {
+            const timingStr = msg.totalTimeMs
+              ? ` ${theme.dim("·")} ${theme.dim(`${(msg.totalTimeMs / 1000).toFixed(2)}s`)}${msg.ttfbMs ? ` ${theme.dim(`(TTFB ${msg.ttfbMs}ms)`)}` : ""}`
+              : "";
             chatContent.push("");
             chatContent.push(
-              `    ${theme.cyan("▣")} ${theme.bold("Qwen")} ${theme.dim("·")} ${theme.cyan(messageModel)} ${theme.dim("·")} ${theme.dim(`${(msg.totalTimeMs / 1000).toFixed(2)}s`)} ${theme.dim(`(TTFB ${msg.ttfbMs}ms)`)}`,
+              `    ${theme.cyan("▣")} ${theme.bold("Qwen")} ${theme.dim("·")} ${theme.cyan(messageModel)}${timingStr}`,
             );
           }
           chatContent.push("");

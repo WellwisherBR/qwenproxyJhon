@@ -345,8 +345,8 @@ test("TUI ChatView: past assistant messages preserve their generating model when
   // Confirm effort selection with Return
   await view.handleKey({ name: "return", ctrl: false, shift: false, meta: false });
   const rendered = view.render(80, 24).join("\n");
-  // The conversation history should still show qwen3.8-max for that message
-  assert.ok(rendered.includes("Qwen (qwen3.8-max):"));
+  // The conversation history should still show qwen3.8-max for that message via execution badge
+  assert.ok(stripAnsi(rendered).includes("▣ Qwen · qwen3.8-max"));
   // While the active selector header shows qwen3.7-plus
   assert.ok(rendered.includes("qwen3.7-plus"));
 });
