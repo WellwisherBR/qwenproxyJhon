@@ -87,16 +87,17 @@ export async function buildFinalContext(
     ? false
     : useThreadNative && (hasExplicitConversationKey || !isNewSession); // has assistant messages = continuation of existing chat
 
-  // Compute sessionId: only generate a persistent session ID when we have
-  // an explicit conversation key. Otherwise, generate an ephemeral ID for
-  // logging/metrics only (not used for thread reuse). Temp mode never persists
-  // a thread, so it has no session id.
+  // Compute sessionId: deterministic session ID derived from the conversation
+  // key (or "implicit-thread") + system instructions + first user message.
+  // Including completeInstructions in ALL modes (not just explicit keys)
+  // prevents cross-project session collisions when different projects share
+  // the same first user message but have different system prompts / tools.
   const sessionId = isStateless
     ? null
     : (conversationKey || useThreadNative)
       ? deriveSessionId(
           messages,
-          conversationKey ? completeInstructions : "",
+          completeInstructions,
           conversationKey ?? "implicit-thread",
         )
       : null;

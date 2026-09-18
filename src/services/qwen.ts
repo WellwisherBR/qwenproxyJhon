@@ -27,7 +27,7 @@ import {
   syncModelMetadata,
 } from "../core/model-registry.ts";
 import { type Page, type BrowserContext } from "patchright";
-import { withAccountPage, assertAntiBotHeaders, onBrowserContextCreated } from "./playwright.ts";
+import { withAccountPage, assertAntiBotHeaders, onBrowserContextCreated, isPlaywrightInitializing } from "./playwright.ts";
 import { recoverBaxiaCaptcha } from "./captcha-coordinator.ts";
 import { startBaxiaCaptchaWatcher } from "./captcha-solver.ts";
 import { isAccountBusy } from "../core/account-concurrency.ts";
@@ -1767,6 +1767,14 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
   ) {
     return;
   }
+  // Defer if the account's Playwright browser is still initializing: the
+  // settings POST requires the page mutex, and init legitimately holds it for
+  // 20-30s (navigation + bx SDK + header capture). Attempting to acquire the
+  // mutex now would time out (5s default in withQwenBrowserPage) and log a
+  // spurious WARN. The startup flow calls us again after init finishes.
+  if (accountId && isPlaywrightInitializing(accountId)) {
+    return;
+  }
   disablingNativeToolsInProgress.add(cacheKey);
 
   try {
@@ -2827,7 +2835,7 @@ async function createQwenStreamInternal(
             auto_thinking: mode === "auto",
             thinking_mode: thinkingMode,
             ...(thinkingEnabled ? { thinking_format: "summary" } : {}),
-            auto_search: true,
+            auto_search: false,
           };
         })(),
         extra: {

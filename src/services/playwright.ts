@@ -3353,6 +3353,10 @@ export function isPlaywrightInitialized(accountId: string): boolean {
   return accountPages.has(accountId);
 }
 
+export function isPlaywrightInitializing(accountId: string): boolean {
+  return inFlightAccountInits.has(accountId);
+}
+
 export function isAccountRecentlyActive(
   accountId: string,
   maxIdleMs = 300_000,

@@ -1703,6 +1703,12 @@ export class StreamingToolParser {
       result.text += literalBlock;
     }
 
+    // Count undeclared/malformed tool calls toward the per-turn cap.
+    // Without this, the model can generate unlimited undeclared tool calls
+    // (e.g. Qwen-native WebSearch/WebFetch) that bypass the cap entirely,
+    // causing infinite generation until TOTAL_REQUEST_TIMEOUT (10 min).
+    this.emittedToolCallCount++;
+
     this.advanceMarkdownState(literalBlock);
     this.pendingLeadIn = "";
   }
