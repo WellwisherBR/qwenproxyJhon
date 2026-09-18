@@ -5,7 +5,11 @@
 import type { TuiView, ProxyStatusSnapshot } from "../types.ts";
 import type { KeyEvent } from "../screen.ts";
 import { theme, glyphs, drawBox, stringWidth, truncate, stripAnsi, pad, wrapContentLine } from "../theme.ts";
-import { streamChatCompletions, fetchLiveModels } from "../proxy-client.ts";
+import {
+  fetchLiveModels,
+  streamChatCompletions,
+  DEFAULT_FALLBACK_MODELS,
+} from "../proxy-client.ts";
 import { ServerManager } from "../server-manager.ts";
 import { formatMarkdown, formatReasoning } from "../markdown.ts";
 import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
@@ -22,7 +26,11 @@ interface ChatMessage {
   cachedReasoningBox?: string[];
   cachedWidth?: number;
 }
-export function classifyModel(modelId: string): { badge: string; category: string } {
+export function classifyModel(modelId: string): {
+  badge: string;
+  category: string;
+  supportsReasoning: boolean;
+} {
   const lower = modelId.toLowerCase();
   if (
     lower.includes("image") ||
@@ -30,12 +38,35 @@ export function classifyModel(modelId: string): { badge: string; category: strin
     lower.includes("t2i") ||
     lower.includes("i2i")
   ) {
-    return { badge: theme.lavender("[Imagem]"), category: "Geração de Imagem" };
+    return {
+      badge: theme.lavender("[Imagem]"),
+      category: "Geração de Imagem",
+      supportsReasoning: false,
+    };
   }
   if (lower.includes("video") || lower.includes("t2v") || lower.includes("i2v")) {
-    return { badge: theme.peach("[Vídeo] "), category: "Geração de Vídeo" };
+    return {
+      badge: theme.peach("[Vídeo] "),
+      category: "Geração de Vídeo",
+      supportsReasoning: false,
+    };
   }
-  return { badge: theme.cyan("[Texto] "), category: "Texto & Raciocínio" };
+  if (
+    lower.includes("omni") ||
+    lower.includes("audio") ||
+    lower.includes("speech")
+  ) {
+    return {
+      badge: theme.green("[Omni]  "),
+      category: "Multimodal / Omni",
+      supportsReasoning: true,
+    };
+  }
+  return {
+    badge: theme.cyan("[Texto] "),
+    category: "Texto & Raciocínio",
+    supportsReasoning: true,
+  };
 }
 
 export class ChatView implements TuiView {
@@ -43,14 +74,7 @@ export class ChatView implements TuiView {
   public readonly title = "Chat";
   public readonly tabNumber = 2;
 
-  private availableModels = [
-    "qwen3.8-max",
-    "qwen3.7-plus",
-    "qwen3.7-max",
-    "z-image-turbo",
-    "qwen-image-3.0-pro",
-    "wan3.0-video",
-  ];
+  private availableModels = [...DEFAULT_FALLBACK_MODELS];
   private selectedModelIndex = 0;
   private messages: ChatMessage[] = [];
   private inputBuffer = "";
@@ -254,7 +278,7 @@ export class ChatView implements TuiView {
       },
     });
     const info = classifyModel(chosen);
-    if (info.category === "Texto & Raciocínio") {
+    if (info.supportsReasoning) {
       this.isEffortModalOpen = true;
       const effIdx = this.availableEfforts.findIndex((e) => e.id === this.selectedEffort);
       this.effortSelectedIndex = effIdx !== -1 ? effIdx : 0;
@@ -490,6 +514,7 @@ export class ChatView implements TuiView {
     ) {
       const col = key.mouse.col;
       if (this.modelBtnStartCol > 0 && col >= this.modelBtnStartCol - 1 && col <= this.modelBtnEndCol + 1) {
+        void this.refreshModels();
         this.isModelModalOpen = true;
         this.modalSelectedIndex = this.selectedModelIndex;
         this.hoveredHeaderBtn = null;
@@ -530,7 +555,7 @@ export class ChatView implements TuiView {
     if (key.name === "f3") {
       const currentM = this.availableModels[this.selectedModelIndex] || "qwen3.8-max";
       const info = classifyModel(currentM);
-      if (info.category === "Texto & Raciocínio") {
+      if (info.supportsReasoning) {
         this.isEffortModalOpen = true;
         const idx = this.availableEfforts.findIndex((e) => e.id === this.selectedEffort);
         this.effortSelectedIndex = idx !== -1 ? idx : 0;
@@ -810,7 +835,7 @@ export class ChatView implements TuiView {
       .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const isReasoning = classifyModel(model).category === "Texto & Raciocínio";
+      const isReasoning = classifyModel(model).supportsReasoning;
       const result = await streamChatCompletions({
         model,
         reasoning_effort: isReasoning ? this.selectedEffort : undefined,
@@ -887,7 +912,7 @@ export class ChatView implements TuiView {
     const currentModel = this.availableModels[this.selectedModelIndex] || "qwen3.8-max";
     const currentInfo = classifyModel(currentModel);
     const totalModels = this.availableModels.length;
-    const isReasoning = currentInfo.category === "Texto & Raciocínio";
+    const isReasoning = currentInfo.supportsReasoning;
 
     const modelLabel = `[ ${currentModel} ]`;
     const styledModel = this.hoveredHeaderBtn === "model"

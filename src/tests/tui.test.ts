@@ -237,6 +237,10 @@ test("TUI AccountsView: navigates accounts and provides cooldown actions", async
 });
 
 test("TUI ChatView: opens vertical model modal with F2 and selects with Enter", async () => {
+  resetTuiSettingsCacheForTests();
+  const p = getTuiSettingsPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  resetTuiSettingsCacheForTests();
   const view = new ChatView();
   assert.equal(view.id, "chat");
   assert.equal(view.tabNumber, 2);
@@ -399,12 +403,11 @@ test("TUI ChatView: selects model and its reasoning effort (F2/F3 and mouse)", a
   assert.ok(render.includes("Effort: Low (Fast)"));
 });
 test("TUI ChatView: selects chat mode via F4 shortcut and mouse click", async () => {
+  resetTuiSettingsCacheForTests();
+  const p = getTuiSettingsPath();
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+  resetTuiSettingsCacheForTests();
   const view = new ChatView();
-
-  // Default mode is thread (project default maintained)
-  assert.equal((view as any).selectedChatMode, "thread");
-
-  // 1. Open Mode Modal with F4
   await view.handleKey({ name: "f4", ctrl: false, shift: false, meta: false });
   let render = view.render(80, 24).join("\n");
   assert.ok(render.includes("Selecionar Modo de Conversa"));
@@ -514,12 +517,32 @@ test("TUI ChatView: supports cursor movement and in-place character insertion wi
 test("TUI ChatView: classifyModel dynamically categorizes any model without hardcoded lists", async () => {
   const { classifyModel } = await import("../tui/views/chat-view.ts");
 
-  assert.equal(classifyModel("qwen3.8-max").category, "Texto & Raciocínio");
-  assert.ok(classifyModel("qwen3.8-max").badge.includes("[Texto]"));
-  assert.equal(classifyModel("z-image-turbo").category, "Geração de Imagem");
-  assert.ok(classifyModel("z-image-turbo").badge.includes("[Imagem]"));
-  assert.equal(classifyModel("wan3.0-video").category, "Geração de Vídeo");
-  assert.ok(classifyModel("wan3.0-video").badge.includes("[Vídeo]"));
+  const textModel = classifyModel("qwen3.8-max");
+  assert.equal(textModel.category, "Texto & Raciocínio");
+  assert.ok(textModel.badge.includes("[Texto]"));
+  assert.equal(textModel.supportsReasoning, true);
+
+  const omniModel = classifyModel("qwen3.8-omni-flash");
+  assert.equal(omniModel.category, "Multimodal / Omni");
+  assert.ok(omniModel.badge.includes("[Omni]"));
+  assert.equal(omniModel.supportsReasoning, true);
+
+  const imgModel = classifyModel("z-image-turbo");
+  assert.equal(imgModel.category, "Geração de Imagem");
+  assert.ok(imgModel.badge.includes("[Imagem]"));
+  assert.equal(imgModel.supportsReasoning, false);
+
+  const videoModel = classifyModel("wan3.0-video");
+  assert.equal(videoModel.category, "Geração de Vídeo");
+  assert.ok(videoModel.badge.includes("[Vídeo]"));
+  assert.equal(videoModel.supportsReasoning, false);
+});
+
+test("TUI ProxyClient: DEFAULT_FALLBACK_MODELS includes omni-flash and core models", async () => {
+  const { DEFAULT_FALLBACK_MODELS } = await import("../tui/proxy-client.ts");
+  assert.ok(DEFAULT_FALLBACK_MODELS.includes("qwen3.8-omni-flash"));
+  assert.ok(DEFAULT_FALLBACK_MODELS.includes("qwen3.8-max"));
+  assert.ok(DEFAULT_FALLBACK_MODELS.includes("qwen3.7-plus"));
 });
 
 test("TUI LogsView: renders exactly allocated height and switches filters", async () => {

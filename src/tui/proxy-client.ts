@@ -336,10 +336,14 @@ export async function streamChatCompletions(
 let cachedLiveModels: string[] | null = null;
 let liveModelsPromise: Promise<string[]> | null = null;
 
-const DEFAULT_FALLBACK_MODELS = [
+export const DEFAULT_FALLBACK_MODELS = [
   "qwen3.8-max",
   "qwen3.7-plus",
+  "qwen3.8-omni-flash",
   "qwen3.7-max",
+  "qwen3.6-plus",
+  "qwen3.5-plus",
+  "qwen3.5-omni-plus",
   "z-image-turbo",
   "qwen-image-3.0-pro",
   "qwen-image-3.0",
@@ -347,7 +351,17 @@ const DEFAULT_FALLBACK_MODELS = [
   "wan2.7-image",
   "wan3.0-video",
   "wan2.7-t2v",
+  "wan2.7-i2v",
 ];
+
+export function getCachedLiveModels(): string[] | null {
+  return cachedLiveModels;
+}
+
+export function resetCachedLiveModelsForTests(): void {
+  cachedLiveModels = null;
+  liveModelsPromise = null;
+}
 
 export async function fetchLiveModels(forceRefresh = false): Promise<string[]> {
   if (!forceRefresh && cachedLiveModels && cachedLiveModels.length > 0) {
@@ -365,7 +379,9 @@ export async function fetchLiveModels(forceRefresh = false): Promise<string[]> {
 
   liveModelsPromise = (async () => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    // Cold start with Playwright navigation and bx security token acquisition can take 5-12s
+    const timeoutMs = cachedLiveModels ? 4000 : 12000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const resp = await fetch(`http://${host}:${port}/v1/models`, {
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -389,7 +405,9 @@ export async function fetchLiveModels(forceRefresh = false): Promise<string[]> {
           }
         }
       }
-    } catch {} finally {
+    } catch {
+      // Don't poison cachedLiveModels on network error so subsequent polls can retry
+    } finally {
       clearTimeout(timeout);
       liveModelsPromise = null;
     }

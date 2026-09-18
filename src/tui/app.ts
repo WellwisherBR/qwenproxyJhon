@@ -5,7 +5,7 @@
 import { Screen, type KeyEvent } from "./screen.ts";
 import type { TuiView, ProxyStatusSnapshot } from "./types.ts";
 import { theme, glyphs, drawBox, stringWidth } from "./theme.ts";
-import { fetchProxyStatus } from "./proxy-client.ts";
+import { fetchProxyStatus, fetchLiveModels, getCachedLiveModels } from "./proxy-client.ts";
 import { ServerManager } from "./server-manager.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -128,10 +128,28 @@ export class TuiApp {
     } catch {}
 
     // Background polling every 1s for live status updates and model catalog synchronization
+    let pollCount = 0;
     this.pollInterval = setInterval(async () => {
       if (!this.isRunning) return;
+      pollCount++;
       try {
         this.statusSnapshot = await fetchProxyStatus();
+
+        // Sync live models catalog when server is running:
+        // Try every 5s until first successful catalog load, then refresh periodically every 30s
+        const hasLiveModels = getCachedLiveModels() !== null;
+        const shouldSync = !hasLiveModels ? pollCount % 5 === 1 : pollCount % 30 === 1;
+        if (shouldSync) {
+          const models = await fetchLiveModels(hasLiveModels);
+          if (models.length > 0) {
+            for (const view of this.views) {
+              if ("refreshModels" in view && typeof (view as any).refreshModels === "function") {
+                void (view as any).refreshModels();
+              }
+            }
+          }
+        }
+
         this.requestRender();
       } catch {}
     }, 1000);

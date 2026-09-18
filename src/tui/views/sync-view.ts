@@ -12,7 +12,7 @@ import {
   inspectClientSyncStatus,
 } from "../../sync/index.ts";
 import type { SyncClientName } from "../../sync/types.ts";
-import { fetchLiveModels } from "../proxy-client.ts";
+import { fetchLiveModels, DEFAULT_FALLBACK_MODELS } from "../proxy-client.ts";
 
 interface ClientOption {
   id: SyncClientName;
@@ -30,14 +30,7 @@ export class SyncView implements TuiView {
   private clients: ClientOption[] = [];
   private selectedRowIndex = 0; // 0..9 for clients, 10 for model, 11 for scope, 12 for sync, 13 for restore
   private hoveredActionRow: number | null = null;
-  private availableModels = [
-    "qwen3.8-max",
-    "qwen3.7-plus",
-    "qwen3.7-max",
-    "z-image-turbo",
-    "qwen-image-3.0-pro",
-    "wan3.0-video",
-  ];
+  private availableModels = [...DEFAULT_FALLBACK_MODELS];
   private modelIndex = 0;
   private syncAllModels = true;
   private actionLog: string[] = [];
@@ -50,11 +43,14 @@ export class SyncView implements TuiView {
     this.detectClients();
     void this.refreshModels();
   }
-  private async refreshModels(): Promise<void> {
+  public async refreshModels(): Promise<void> {
     try {
       const live = await fetchLiveModels();
       if (live && live.length > 0) {
+        const current = this.availableModels[this.modelIndex];
         this.availableModels = live;
+        const foundIdx = this.availableModels.indexOf(current);
+        this.modelIndex = foundIdx !== -1 ? foundIdx : 0;
       }
     } catch {}
   }
