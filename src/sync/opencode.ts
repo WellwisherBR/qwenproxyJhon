@@ -206,13 +206,37 @@ export function syncOpenCode(options: SyncOptions): ClientSyncResult {
 }
 
 export function restoreOpenCode(filePath: string, backupPath?: string): ClientSyncResult {
-  const restored = restoreFromBackup(filePath, backupPath);
+  const restoredFromBackup = restoreFromBackup(filePath, backupPath);
+
+  let manuallyCleaned = false;
+  if (fs.existsSync(filePath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      if (data.provider && data.provider.qwenproxy) {
+        delete data.provider.qwenproxy;
+        if (data.model && data.model.includes("qwen")) {
+          delete data.model;
+        }
+        if (Object.keys(data.provider).length === 0) {
+          delete data.provider;
+        }
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+        manuallyCleaned = true;
+      }
+    } catch {}
+  }
+
+  const success = restoredFromBackup || manuallyCleaned;
   return {
     client: "opencode",
     filePath,
     backupPath,
-    success: restored,
-    action: restored ? "restored" : "failed",
-    message: restored ? "Restored OpenCode config from backup" : "Backup file not found",
+    success,
+    action: success ? "restored" : "failed",
+    message: success
+      ? restoredFromBackup
+        ? "Restored OpenCode config from backup"
+        : "Removed QwenProxy configuration from OpenCode config"
+      : "Backup file not found",
   };
 }

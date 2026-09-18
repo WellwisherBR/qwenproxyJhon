@@ -99,13 +99,32 @@ export function syncOmp(options: SyncOptions): ClientSyncResult {
 }
 
 export function restoreOmp(filePath: string, backupPath?: string): ClientSyncResult {
-  const restored = restoreFromBackup(filePath, backupPath);
+  const restoredFromBackup = restoreFromBackup(filePath, backupPath);
+
+  let manuallyCleaned = false;
+  if (fs.existsSync(filePath)) {
+    try {
+      let content = fs.readFileSync(filePath, "utf-8");
+      if (content.includes("qwenproxy:")) {
+        const regex = /^\s*qwenproxy:\s*\r?\n(?:^[ \t].*\r?\n?)*/m;
+        content = content.replace(regex, "");
+        fs.writeFileSync(filePath, content, "utf-8");
+        manuallyCleaned = true;
+      }
+    } catch {}
+  }
+
+  const success = restoredFromBackup || manuallyCleaned;
   return {
     client: "omp",
     filePath,
     backupPath,
-    success: restored,
-    action: restored ? "restored" : "failed",
-    message: restored ? "Restored OMP models config from backup" : "Backup file not found",
+    success,
+    action: success ? "restored" : "failed",
+    message: success
+      ? restoredFromBackup
+        ? "Restored OMP models config from backup"
+        : "Removed QwenProxy configuration from OMP config"
+      : "Backup file not found",
   };
 }

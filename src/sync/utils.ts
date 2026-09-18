@@ -13,13 +13,42 @@ export function createTimestampBackup(filePath: string): string {
   return backupPath;
 }
 
+export function findLatestBackup(filePath: string): string | undefined {
+  const dir = path.dirname(filePath);
+  const ext = path.extname(filePath);
+  const base = path.basename(filePath, ext);
+  if (!fs.existsSync(dir)) return undefined;
+
+  try {
+    const files = fs.readdirSync(dir);
+    const candidates = files
+      .filter((f) => f.startsWith(base) && f.includes("qwenproxy") && f.endsWith(".bak"))
+      .map((f) => path.join(dir, f))
+      .sort((a, b) => {
+        try {
+          return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+        } catch {
+          return 0;
+        }
+      });
+
+    return candidates[0];
+  } catch {
+    return undefined;
+  }
+}
+
 export function restoreFromBackup(filePath: string, backupPath?: string): boolean {
-  if (!backupPath || !fs.existsSync(backupPath)) {
+  const targetBackup = (backupPath && fs.existsSync(backupPath))
+    ? backupPath
+    : findLatestBackup(filePath);
+
+  if (!targetBackup || !fs.existsSync(targetBackup)) {
     return false;
   }
-  fs.copyFileSync(backupPath, filePath);
+  fs.copyFileSync(targetBackup, filePath);
   try {
-    fs.unlinkSync(backupPath);
+    fs.unlinkSync(targetBackup);
   } catch {
     // Ignore cleanup error
   }

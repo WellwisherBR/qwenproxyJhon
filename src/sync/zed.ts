@@ -198,13 +198,37 @@ export function syncZed(options: SyncOptions): ClientSyncResult {
 }
 
 export function restoreZed(filePath: string, backupPath?: string): ClientSyncResult {
-  const restored = restoreFromBackup(filePath, backupPath);
+  const restoredFromBackup = restoreFromBackup(filePath, backupPath);
+
+  let manuallyCleaned = false;
+  if (fs.existsSync(filePath)) {
+    try {
+      let content = fs.readFileSync(filePath, "utf-8");
+      if (content.includes("127.0.0.1:7936") || content.includes("qwen3.8-max")) {
+        const data = parseJsonWithComments(content);
+        if (data.language_models?.openai?.api_url?.includes("7936")) {
+          delete data.language_models.openai;
+          if (Object.keys(data.language_models).length === 0) {
+            delete data.language_models;
+          }
+          fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+          manuallyCleaned = true;
+        }
+      }
+    } catch {}
+  }
+
+  const success = restoredFromBackup || manuallyCleaned;
   return {
     client: "zed",
     filePath,
     backupPath,
-    success: restored,
-    action: restored ? "restored" : "failed",
-    message: restored ? "Restored Zed settings from backup" : "Backup file not found",
+    success,
+    action: success ? "restored" : "failed",
+    message: success
+      ? restoredFromBackup
+        ? "Restored Zed settings from backup"
+        : "Removed QwenProxy configuration from Zed settings"
+      : "Backup file not found",
   };
 }

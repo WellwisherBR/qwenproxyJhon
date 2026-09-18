@@ -65,13 +65,48 @@ export function syncClaudeCode(options: SyncOptions): ClientSyncResult {
 }
 
 export function restoreClaudeCode(filePath: string, backupPath?: string): ClientSyncResult {
-  const restored = restoreFromBackup(filePath, backupPath);
+  const restoredFromBackup = restoreFromBackup(filePath, backupPath);
+
+  let manuallyCleaned = false;
+  if (fs.existsSync(filePath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      if (data.env && (data.env.ANTHROPIC_BASE_URL?.includes("7936") || data.env.ANTHROPIC_AUTH_TOKEN === "sk-qwenproxy-local" || data.env.ANTHROPIC_MODEL?.includes("qwen"))) {
+        delete data.env.ANTHROPIC_BASE_URL;
+        delete data.env.ANTHROPIC_AUTH_TOKEN;
+        delete data.env.ANTHROPIC_MODEL;
+        delete data.env.ANTHROPIC_CUSTOM_MODEL_OPTION;
+        delete data.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME;
+        delete data.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION;
+        delete data.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+        delete data.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+        delete data.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+        delete data.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+        delete data.env.CLAUDE_CODE_DISABLE_ARTIFACT;
+        delete data.enableArtifact;
+        if (data.model && data.model.toLowerCase().includes("qwen")) {
+          delete data.model;
+        }
+        if (Object.keys(data.env).length === 0) {
+          delete data.env;
+        }
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+        manuallyCleaned = true;
+      }
+    } catch {}
+  }
+
+  const success = restoredFromBackup || manuallyCleaned;
   return {
     client: "claude-code",
     filePath,
     backupPath,
-    success: restored,
-    action: restored ? "restored" : "failed",
-    message: restored ? "Restored Claude Code settings from backup" : "Backup file not found",
+    success,
+    action: success ? "restored" : "failed",
+    message: success
+      ? restoredFromBackup
+        ? "Restored Claude Code settings from backup"
+        : "Removed QwenProxy configuration from Claude Code settings"
+      : "Backup file not found",
   };
 }

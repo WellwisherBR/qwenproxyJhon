@@ -469,3 +469,53 @@ test("inspectClientSyncStatus correctly determines installed and synced states",
   assert.equal(opencodeExternal.synced, false);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test("restoreAllClients: merges state across multiple syncAllClients and supports selective rollback", () => {
+  const tmp = createTempDir();
+  const claudePath = path.join(tmp, "claude-settings.json");
+  const codexPath = path.join(tmp, "codex-config.toml");
+  const stateFilePath = path.join(tmp, "sync-state.json");
+
+  fs.writeFileSync(claudePath, JSON.stringify({ env: { ANTHROPIC_MODEL: "claude-3-opus" } }), "utf-8");
+  fs.writeFileSync(codexPath, `model = "gemini-flash"\nmodel_provider = "custom"\n`, "utf-8");
+
+  // Sync 1: Claude Code only
+  syncAllClients({
+    targets: ["claude-code"],
+    customPaths: { claudeCode: claudePath, codex: codexPath } as any,
+    stateFilePath,
+  });
+
+  // Sync 2: Codex only (must merge into stateFilePath, not overwrite Claude!)
+  syncAllClients({
+    targets: ["codex"],
+    customPaths: { claudeCode: claudePath, codex: codexPath } as any,
+    stateFilePath,
+  });
+
+  const state = JSON.parse(fs.readFileSync(stateFilePath, "utf-8"));
+  assert.ok(state.clients.claudeCode, "State must retain claudeCode");
+  assert.ok(state.clients.codex, "State must retain codex");
+
+  // Selective Restore: Codex only
+  const resCodex = restoreAllClients({
+    targets: ["codex"],
+    stateFilePath,
+  });
+  assert.equal(resCodex.restoredCount, 1);
+  assert.equal(inspectClientSyncStatus("codex", codexPath).synced, false);
+  assert.equal(inspectClientSyncStatus("claude-code", claudePath).synced, true);
+
+  // State file must still have claudeCode
+  const stateAfterSelective = JSON.parse(fs.readFileSync(stateFilePath, "utf-8"));
+  assert.ok(stateAfterSelective.clients.claudeCode, "Claude must remain in state");
+  assert.equal(stateAfterSelective.clients.codex, undefined, "Codex must be removed from state");
+
+  // Restore remaining
+  const resRemaining = restoreAllClients({ stateFilePath });
+  assert.equal(resRemaining.restoredCount, 1);
+  assert.equal(inspectClientSyncStatus("claude-code", claudePath).synced, false);
+  assert.equal(fs.existsSync(stateFilePath), false, "State file unlinked when all restored");
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+});

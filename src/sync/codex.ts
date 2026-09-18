@@ -111,13 +111,38 @@ experimental_bearer_token = "${apiKey}"
 }
 
 export function restoreCodex(filePath: string, backupPath?: string): ClientSyncResult {
-  const restored = restoreFromBackup(filePath, backupPath);
+  const restoredFromBackup = restoreFromBackup(filePath, backupPath);
+
+  // If backup was restored but still had qwenproxy (or if no backup was found),
+  // strip the QwenProxy provider block cleanly so the file is guaranteed un-synced.
+  let manuallyCleaned = false;
+  if (fs.existsSync(filePath)) {
+    try {
+      let content = fs.readFileSync(filePath, "utf-8");
+      if (content.includes("[model_providers.qwenproxy]") || /^model_provider\s*=\s*["']qwenproxy["']/m.test(content)) {
+        const providerRegex = /\[model_providers\.qwenproxy\][\s\S]*?(?=(?:^\[|\Z))/m;
+        content = content.replace(providerRegex, "").trimEnd();
+        content = content.replace(/^model_provider\s*=\s*["']qwenproxy["']\r?\n?/m, "");
+        if (/^model\s*=\s*["']qwen/m.test(content)) {
+          content = content.replace(/^model\s*=\s*["']qwen[^"']*["']\r?\n?/m, "");
+        }
+        fs.writeFileSync(filePath, content.trimEnd() + "\n", "utf-8");
+        manuallyCleaned = true;
+      }
+    } catch {}
+  }
+
+  const success = restoredFromBackup || manuallyCleaned;
   return {
     client: "codex",
     filePath,
     backupPath,
-    success: restored,
-    action: restored ? "restored" : "failed",
-    message: restored ? "Restored Codex config from backup" : "Backup file not found",
+    success,
+    action: success ? "restored" : "failed",
+    message: success
+      ? restoredFromBackup
+        ? "Restored Codex config from backup"
+        : "Removed QwenProxy configuration from Codex config"
+      : "Backup file not found",
   };
 }

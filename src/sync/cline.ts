@@ -98,13 +98,43 @@ export function syncCline(options: SyncOptions): ClientSyncResult {
 }
 
 export function restoreCline(filePath: string, backupPath?: string): ClientSyncResult {
-  const restored = restoreFromBackup(filePath, backupPath);
+  const restoredFromBackup = restoreFromBackup(filePath, backupPath);
+
+  let manuallyCleaned = false;
+  if (fs.existsSync(filePath)) {
+    try {
+      const db = new Database(filePath);
+      const rows = db
+        .prepare("SELECT key, value FROM ItemTable WHERE key = 'saoudrizwan.claude-dev' OR key = 'ZooCodeOrganization.zoo-code'")
+        .all() as Array<{ key: string; value: string }>;
+
+      for (const row of rows) {
+        try {
+          const parsed = JSON.parse(row.value);
+          if (parsed.openAiBaseUrl?.includes("7936") || parsed.openAiModelId?.includes("qwen")) {
+            delete parsed.openAiBaseUrl;
+            delete parsed.openAiApiKey;
+            delete parsed.openAiModelId;
+            db.prepare("UPDATE ItemTable SET value = ? WHERE key = ?").run(JSON.stringify(parsed), row.key);
+            manuallyCleaned = true;
+          }
+        } catch {}
+      }
+      db.close();
+    } catch {}
+  }
+
+  const success = restoredFromBackup || manuallyCleaned;
   return {
     client: "cline",
     filePath,
     backupPath,
-    success: restored,
-    action: restored ? "restored" : "failed",
-    message: restored ? "Restored Cline settings from backup" : "Backup file not found",
+    success,
+    action: success ? "restored" : "failed",
+    message: success
+      ? restoredFromBackup
+        ? "Restored Cline settings from backup"
+        : "Removed QwenProxy configuration from Cline settings"
+      : "Backup file not found",
   };
 }

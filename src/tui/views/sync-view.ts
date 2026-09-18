@@ -324,9 +324,16 @@ export class SyncView implements TuiView {
   }
 
   private executeRollback(): void {
-    this.actionLog.unshift(theme.yellow("⏳ Restaurando backups anteriores de configuração..."));
+    const selectedTargets = this.clients
+      .filter((c) => c.selected)
+      .map((c) => c.id);
+
+    const targetDesc = selectedTargets.length > 0 ? `[${selectedTargets.join(", ")}]` : "todos os clientes";
+    this.actionLog.unshift(theme.yellow(`⏳ Restaurando backups anteriores de ${targetDesc}...`));
     try {
-      const res = restoreAllClients();
+      const res = restoreAllClients({
+        targets: selectedTargets.length > 0 ? selectedTargets : undefined,
+      });
       this.actionLog.unshift(
         theme.green(`✓ Rollback concluído: ${res.restoredCount} arquivo(s) restaurados com sucesso.`),
       );
