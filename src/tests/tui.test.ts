@@ -1615,6 +1615,53 @@ test("TUI StatusView: precision mouse hover and click on action buttons", async 
   assert.ok(renderText.includes("Status atualizado"), "clicking Recarregar must update status message");
 });
 
+test("TUI StatusView: mouse click and 'c' shortcut copy Base URL to clipboard with visual confirmation", async () => {
+  const view = new StatusView();
+  view.render(80, 24);
+
+  const baseUrlRow = (view as any).lastBaseUrlRow || 6;
+  const baseUrl = (view as any).lastBaseUrl;
+  assert.ok(baseUrl.includes("/v1"), "Base URL must contain /v1");
+
+  // 1. Mouse hover over Base URL row (row 6, col 10)
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", row: baseUrlRow, col: 10 },
+  });
+  assert.equal((view as any).isBaseUrlHovered, true, "Hovering row 6 must set isBaseUrlHovered");
+
+  // 2. Mouse click on Base URL row
+  await view.handleKey({
+    name: "click",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "click", row: baseUrlRow, col: 10, button: "left" },
+  });
+
+  assert.equal((view as any).copiedRecently, true, "Clicking Base URL must set copiedRecently");
+  const renderTextAfterClick = view.render(80, 24).join("\n");
+  assert.ok(renderTextAfterClick.includes("Base URL copiada"), "Must display confirmation footer");
+
+  // Verify clipboard has the baseUrl
+  const inClipboard = getClipboardText();
+  assert.equal(inClipboard, baseUrl, "Clipboard must receive the exact base URL");
+
+  // 3. Test keyboard 'c' shortcut
+  (view as any).copiedRecently = false;
+  await view.handleKey({
+    name: "c",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    char: "c",
+  });
+  assert.equal((view as any).copiedRecently, true, "Pressing 'c' must also copy base URL");
+});
+
 test("TUI Theme: setClipboardText and getClipboardText preserve full Unicode emojis and accents", () => {
   const original = "✨ [Server] Conectado à instância em execução na porta 7936";
   setClipboardText(original);

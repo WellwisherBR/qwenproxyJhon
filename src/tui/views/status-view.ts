@@ -4,7 +4,7 @@
 
 import type { TuiView, ProxyStatusSnapshot } from "../types.ts";
 import type { KeyEvent } from "../screen.ts";
-import { theme, glyphs, drawBox, pad, truncate } from "../theme.ts";
+import { theme, glyphs, drawBox, pad, truncate, setClipboardText } from "../theme.ts";
 import { fetchProxyStatus, resetAllCooldowns, formatUptime } from "../proxy-client.ts";
 import { ServerManager } from "../server-manager.ts";
 import { getRuntimeChatMode, cycleNextChatMode } from "../../core/config.ts";
@@ -61,14 +61,21 @@ export class StatusView implements TuiView {
   private actionMessage = "";
   private actionMessageTimeout: NodeJS.Timeout | null = null;
   private hoveredActionRow: number | null = null;
+  private isBaseUrlHovered = false;
+  private copiedRecently = false;
+  private copiedTimeout: NodeJS.Timeout | null = null;
+  private lastBaseUrl = "http://127.0.0.1:7936/v1";
+  private lastBaseUrlRow = 6;
+  private lastModoApiRow = 7;
   private lastLeftW = 38;
   private lastActionRecarregarRow = 20;
   private lastActionZerarRow = 21;
   private lastActionModoRow = 22;
+  private lastActionCopiarRow = 23;
+
   constructor() {
     this.refresh();
   }
-
   public async refresh(): Promise<void> {
     try {
       if (process.stdout.isTTY && !process.env.NODE_TEST_CONTEXT) {
@@ -90,6 +97,7 @@ export class StatusView implements TuiView {
       { key: "r", label: "Recarregar" },
       { key: "z", label: "Zerar Cooldowns" },
       { key: "m", label: "Alternar Modo" },
+      { key: "c", label: "Copiar URL" },
     ];
   }
 
@@ -102,25 +110,34 @@ export class StatusView implements TuiView {
   }
 
   public async handleKey(key: KeyEvent): Promise<boolean | void> {
-    // Mouse hover over quick actions
+    // Mouse hover over quick actions or Base URL
     if (key.name === "hover" && key.mouse) {
       const { row, col } = key.mouse;
       const leftW = this.lastLeftW || 38;
-      if (
-        col >= 2 &&
-        col <= leftW - 1 &&
+      const isOverLeft = col >= 2 && col <= leftW - 1;
+      const isOverBaseUrl = isOverLeft && row === this.lastBaseUrlRow;
+      const isOverAction =
+        isOverLeft &&
         (row === this.lastActionRecarregarRow ||
           row === this.lastActionZerarRow ||
-          row === this.lastActionModoRow)
-      ) {
+          row === this.lastActionModoRow ||
+          row === this.lastActionCopiarRow);
+
+      let changed = false;
+      if (isOverBaseUrl !== this.isBaseUrlHovered) {
+        this.isBaseUrlHovered = isOverBaseUrl;
+        changed = true;
+      }
+      if (isOverAction) {
         if (this.hoveredActionRow !== row) {
           this.hoveredActionRow = row;
-          return true;
+          changed = true;
         }
       } else if (this.hoveredActionRow !== null) {
         this.hoveredActionRow = null;
-        return true;
+        changed = true;
       }
+      if (changed) return true;
     }
 
     // Mouse click interactions
@@ -128,6 +145,17 @@ export class StatusView implements TuiView {
       const { row, col } = key.mouse;
       const leftW = this.lastLeftW || 38;
       if (col >= 2 && col <= leftW - 1) {
+        if (row === this.lastBaseUrlRow || row === this.lastActionCopiarRow) {
+          setClipboardText(this.lastBaseUrl);
+          this.copiedRecently = true;
+          if (this.copiedTimeout) clearTimeout(this.copiedTimeout);
+          this.copiedTimeout = setTimeout(() => {
+            this.copiedRecently = false;
+            this.copiedTimeout = null;
+          }, 2500);
+          this.setMessage(theme.green(`✓ Base URL copiada: ${this.lastBaseUrl}`));
+          return true;
+        }
         if (row === this.lastActionRecarregarRow) {
           await this.refresh();
           this.setMessage(theme.green("✓ Status atualizado"));
@@ -139,7 +167,7 @@ export class StatusView implements TuiView {
           this.setMessage(theme.green(`✓ Cooldowns zerados: ${cleared} conta(s) liberada(s)`));
           return true;
         }
-        if (row === this.lastActionModoRow) {
+        if (row === this.lastActionModoRow || row === this.lastModoApiRow) {
           const nextMode = cycleNextChatMode();
           saveTuiSettings({ chat: { mode: nextMode } });
           await this.refresh();
@@ -168,8 +196,19 @@ export class StatusView implements TuiView {
       this.setMessage(theme.green(`✓ Modo global da API: ${nextMode}`));
       return true;
     }
-  }
 
+    if ((key.name === "c" || key.name === "C") && !key.ctrl && !key.meta) {
+      setClipboardText(this.lastBaseUrl);
+      this.copiedRecently = true;
+      if (this.copiedTimeout) clearTimeout(this.copiedTimeout);
+      this.copiedTimeout = setTimeout(() => {
+        this.copiedRecently = false;
+        this.copiedTimeout = null;
+      }, 2500);
+      this.setMessage(theme.green(`✓ Base URL copiada: ${this.lastBaseUrl}`));
+      return true;
+    }
+  }
   public render(width: number, height: number, snapshot?: ProxyStatusSnapshot | null): string[] {
     const data = snapshot || this.statusData;
     const isOnline = data?.online ?? false;
@@ -197,7 +236,9 @@ export class StatusView implements TuiView {
     const uptimeSecs = data?.uptimeSeconds || Math.floor(process.uptime());
     const uptimeStr = formatUptime(uptimeSecs);
     const baseUrl = `http://${data?.host || "127.0.0.1"}:${data?.port || 7936}/v1`;
-
+    this.lastBaseUrl = baseUrl;
+    this.lastBaseUrlRow = 6;
+    this.lastModoApiRow = 7;
     const m = data?.metrics;
     const reqsTotal = m?.requestsTotal ?? 0;
     const reqsErrors = m?.requestsErrors ?? 0;
@@ -230,10 +271,23 @@ export class StatusView implements TuiView {
     if (data?.waitingStreams && data.waitingStreams > 0) {
       connsStr += theme.peach(` (${data.waitingStreams} na fila)`);
     }
+    const fitsBadge = innerLeftW >= 15 + baseUrl.length + 11;
+    let urlDisplay: string;
+    if (this.copiedRecently) {
+      urlDisplay = fitsBadge
+        ? `${theme.bold(theme.green(baseUrl))} ${theme.bold(theme.green("✓ Copiado!"))}`
+        : theme.bold(theme.green(baseUrl));
+    } else if (this.isBaseUrlHovered) {
+      urlDisplay = fitsBadge
+        ? `${theme.bgHover(` ${theme.bold(theme.white(baseUrl))} `)} ${theme.cyan("📋 Copiar")}`
+        : theme.bgHover(` ${theme.bold(theme.white(baseUrl))} `);
+    } else {
+      urlDisplay = theme.cyan(baseUrl);
+    }
 
     const leftContent: string[] = [
       `  ${theme.bold(lbl("Status:"))} ${onlineBadge}`,
-      `  ${theme.bold(lbl("Base URL:"))} ${theme.cyan(baseUrl)}`,
+      `  ${theme.bold(lbl("Base URL:"))} ${urlDisplay}`,
       `  ${theme.bold(lbl("Modo API:"))} ${
         getRuntimeChatMode() === "thread"
           ? theme.cyan("[thread]")
@@ -261,15 +315,19 @@ export class StatusView implements TuiView {
 
     const recarregarIdx = leftContent.length;
     const zerarIdx = leftContent.length + 1;
+    const modoIdx = leftContent.length + 2;
+    const copiarIdx = leftContent.length + 3;
+
     this.lastActionRecarregarRow = 5 + recarregarIdx;
     this.lastActionZerarRow = 5 + zerarIdx;
-    const modoIdx = leftContent.length + 2;
     this.lastActionModoRow = 5 + modoIdx;
+    this.lastActionCopiarRow = 5 + copiarIdx;
 
     leftContent.push(
       `   ${this.hoveredActionRow === this.lastActionRecarregarRow ? theme.bgHover(` ${theme.cyan("[ R ] Recarregar")} `) : ` ${theme.cyan("[ R ]")} Recarregar`}`,
       `   ${this.hoveredActionRow === this.lastActionZerarRow ? theme.bgHover(` ${theme.yellow("[ Z ] Zerar Cooldowns")} `) : ` ${theme.yellow("[ Z ]")} Zerar Cooldowns`}`,
       `   ${this.hoveredActionRow === this.lastActionModoRow ? theme.bgHover(` ${theme.lavender("[ M ] Alternar Modo")} `) : ` ${theme.lavender("[ M ]")} Alternar Modo`}`,
+      `   ${this.hoveredActionRow === this.lastActionCopiarRow ? theme.bgHover(` ${theme.green("[ C ] Copiar URL")} `) : ` ${theme.green("[ C ]")} Copiar URL`}`,
     );
 
     const boxHeight = Math.max(contentH, leftContent.length + 2);
