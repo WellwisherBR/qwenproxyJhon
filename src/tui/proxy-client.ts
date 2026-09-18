@@ -336,23 +336,8 @@ export async function streamChatCompletions(
 let cachedLiveModels: string[] | null = null;
 let liveModelsPromise: Promise<string[]> | null = null;
 
-export const DEFAULT_FALLBACK_MODELS = [
-  "qwen3.8-max",
-  "qwen3.7-plus",
-  "qwen3.8-omni-flash",
-  "qwen3.7-max",
-  "qwen3.6-plus",
-  "qwen3.5-plus",
-  "qwen3.5-omni-plus",
-  "z-image-turbo",
-  "qwen-image-3.0-pro",
-  "qwen-image-3.0",
-  "wan2.7-image-pro",
-  "wan2.7-image",
-  "wan3.0-video",
-  "wan2.7-t2v",
-  "wan2.7-i2v",
-];
+export { DEFAULT_FALLBACK_MODELS } from "../core/model-alias.ts";
+import { DEFAULT_FALLBACK_MODELS } from "../core/model-alias.ts";
 
 export function getCachedLiveModels(): string[] | null {
   return cachedLiveModels;

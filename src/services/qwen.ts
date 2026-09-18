@@ -440,6 +440,14 @@ const modelsCache = new Map<
   { models: PublicQwenModel[]; fetchedAt: number }
 >();
 
+export function getAnyCachedQwenModels(): PublicQwenModel[] | undefined {
+  for (const entry of modelsCache.values()) {
+    if (entry.models && entry.models.length > 0) {
+      return entry.models;
+    }
+  }
+  return undefined;
+}
 const nativeToolsDisabled = new Set<string>();
 const disablingNativeToolsInProgress = new Set<string>();
 const lastSyncedPersonalizationHashes = new Map<string, string>();
