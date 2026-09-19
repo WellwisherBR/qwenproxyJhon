@@ -61,7 +61,7 @@ import { loadAccounts, type QwenAccount } from "../core/accounts.ts";
 // acyclic, while the reverse direction would drag the browser layer into core.
 import { hasActiveAccountLease } from "../core/account-concurrency.ts";
 import { config } from "../core/config.ts";
-import { maskEmail } from "../core/logger.ts";
+import { maskEmail, logger } from "../core/logger.ts";
 import { Mutex } from "../core/mutex.ts";
 import {
   markAccountHeadersReady,
@@ -183,6 +183,22 @@ async function recoverStuckAccountMutex(
   // the context makes the old operation fail; replacing the mutex lets the
   // account be initialized again instead of remaining permanently wedged.
   if (accountMutexes.get(accountId) !== mutex) return;
+
+  const lockState = mutex.state();
+  // A lock is only considered stuck if it has been held for at least PLAYWRIGHT_MUTEX_WAIT_MS (60s).
+  // A waiter with a short timeout (e.g. 5s) timing out does NOT mean the lock holder is stuck!
+  // Furthermore, never nuke an account while it is initializing (init: takes 20-30s)
+  // or while it is actively serving a stream to a user.
+  if (
+    lockState.heldForMs < PLAYWRIGHT_MUTEX_WAIT_MS ||
+    lockState.heldBy.startsWith("init:") ||
+    isAccountServingStream(accountId)
+  ) {
+    logger.warn(
+      `[Playwright] Skipping destructive mutex recovery | account=${accountId} | heldBy=${lockState.heldBy} | heldFor=${lockState.heldForMs}ms | limit=${PLAYWRIGHT_MUTEX_WAIT_MS}ms | servingStream=${isAccountServingStream(accountId)}`,
+    );
+    return;
+  }
 
   console.warn(
     `[Playwright] Recovering stuck account mutex | account=${accountId} | key=${key}`,

@@ -67,6 +67,8 @@ import {
 } from "../../services/context-meter.ts";
 import {
   getIncrementalDelta,
+  isThinkingPhase,
+  extractThinkingContent,
   formatThinkingSummaryContent,
   shouldSuppressStreamAbort,
   isAbortError,
@@ -436,9 +438,9 @@ export async function processNonStreamingResponse(
           ) {
             const delta = chunk.choices[0].delta;
 
-            if (delta.phase === "thinking_summary") {
+            if (isThinkingPhase(delta.phase)) {
               isThinkingChunk = true;
-              const formattedSummary = formatThinkingSummaryContent(delta);
+              const formattedSummary = extractThinkingContent(delta);
               if (formattedSummary) {
                 const result = getIncrementalDelta(
                   lastThinkingSummary,
@@ -1737,9 +1739,9 @@ export async function processStreamingResponse(
                 break; // Exit the for loop; the while check leaves the read loop
               }
 
-              if (delta.phase === "thinking_summary") {
+              if (isThinkingPhase(delta.phase)) {
                 isThinkingChunk = true;
-                const formattedSummary = formatThinkingSummaryContent(delta);
+                const formattedSummary = extractThinkingContent(delta);
                 if (formattedSummary) {
                   const result = getIncrementalDelta(
                     lastThinkingSummary,
@@ -2254,9 +2256,9 @@ export async function processStreamingResponse(
               let foundStr = false;
               let isThinkingChunk = false;
 
-              if (delta.phase === "thinking_summary") {
+              if (isThinkingPhase(delta.phase)) {
                 isThinkingChunk = true;
-                const formattedSummary = formatThinkingSummaryContent(delta);
+                const formattedSummary = extractThinkingContent(delta);
                 if (formattedSummary) {
                   const result = getIncrementalDelta(
                     lastThinkingSummary,
@@ -2655,10 +2657,29 @@ export async function processStreamingResponse(
     } else {
       logger.error("[Chat] Stream callback error", errorDetails);
     }
-
-    // The HTTP response is already committed at this point. Emit a terminal
-    // OpenAI-compatible SSE error instead of silently closing the connection.
+    // The HTTP response is already committed at this point.
+    // 1. Emit an explicit assistant message delta so CLI/TUI clients that only
+    //    listen for choices[].delta.content (e.g. OpenCode, Claude Code, etc.)
+    //    render the error visibly in the chat instead of appearing blank/frozen.
+    // 2. Emit a terminal OpenAI-compatible SSE error event + [DONE].
     try {
+      const userFriendlyNotice = `\n\n⚠️ **[Qwen Security / Erro]** ${err.message || "A resposta foi interrompida pelo Qwen."}\n\n`;
+      const errorDelta = {
+        id: completionId,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: body.model,
+        choices: [
+          {
+            index: 0,
+            delta: { content: userFriendlyNotice },
+            logprobs: null,
+            finish_reason: "stop",
+          },
+        ],
+      };
+
+      await errorStream.write(`data: ${JSON.stringify(errorDelta)}\n\n`);
       await errorStream.write(
         `data: ${JSON.stringify({
           error: {
@@ -2668,7 +2689,7 @@ export async function processStreamingResponse(
           },
         })}\n\ndata: [DONE]\n\n`,
       );
-    } catch (_writeErr) {
+    } catch {
       // Stream already closed — client already disconnected or the stream
       // was cancelled. Nothing more we can do.
     }

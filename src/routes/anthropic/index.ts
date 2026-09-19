@@ -97,6 +97,18 @@ app.post("/v1/messages", async (c) => {
   try {
     // 3. Translate Anthropic request to internal OpenAI format
     const openaiRequest = translateAnthropicToOpenAI(body);
+    const claudeSessionId =
+      c.req.header("x-claude-code-session-id") ||
+      (typeof body.metadata?.user_id === "string" && body.metadata.user_id.includes('"session_id":')
+        ? (() => {
+            try {
+              const parsed = JSON.parse(body.metadata.user_id as string);
+              return typeof parsed?.session_id === "string" ? parsed.session_id : undefined;
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined);
 
     const dispatchToChat = (streamMode: boolean) =>
       fetch(`http://127.0.0.1:${config.server.port}/v1/chat/completions`, {
@@ -108,9 +120,11 @@ app.post("/v1/messages", async (c) => {
           ...(c.req.header("x-qwenproxy-chat-mode")
             ? { "x-qwenproxy-chat-mode": c.req.header("x-qwenproxy-chat-mode")! }
             : {}),
+          ...(claudeSessionId ? { "x-session-id": claudeSessionId } : {}),
         },
         body: JSON.stringify({
           ...openaiRequest,
+          ...(claudeSessionId ? { session_id: claudeSessionId } : {}),
           stream: streamMode,
           ...(streamMode ? { stream_options: { include_usage: true } } : {}),
         }),
