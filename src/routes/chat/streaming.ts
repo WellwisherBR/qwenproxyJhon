@@ -1485,6 +1485,7 @@ export async function processStreamingResponse(
         }
 
         const previousUiSessionId = currentUiSessionId;
+        const previousAccountId = currentAccountId;
         currentAccountId = newStreamResult.activeAccountId;
         currentUiSessionId = newStreamResult.uiSessionId;
         retryContext.releaseAccountLease =
@@ -1517,9 +1518,18 @@ export async function processStreamingResponse(
           });
         }
 
-        console.log(
-          `🔄 [Chat] Stream recovery switched account | old=${previousUiSessionId.substring(0, 12)} | new=${currentUiSessionId.substring(0, 12)} | account=${currentAccountId}`,
-        );
+        const switched =
+          previousUiSessionId !== currentUiSessionId ||
+          previousAccountId !== currentAccountId;
+        if (switched) {
+          console.log(
+            `🔄 [Chat] Stream recovery switched account | old=${previousUiSessionId.substring(0, 12)} | new=${currentUiSessionId.substring(0, 12)} | account=${currentAccountId}`,
+          );
+        } else {
+          console.log(
+            `🔄 [Chat] Stream recovery resumed | chat=${currentUiSessionId.substring(0, 12)} | account=${currentAccountId}`,
+          );
+        }
         reader = newStreamResult.stream.getReader();
         activeReader = reader;
         return true;

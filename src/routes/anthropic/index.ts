@@ -261,7 +261,18 @@ app.post("/v1/messages", async (c) => {
             `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
           );
         } catch (error: any) {
-          console.error("❌ [Anthropic] Stream error:", error?.message || error);
+          const isClientAbort =
+            c.req.raw.signal.aborted ||
+            error?.name === "AbortError" ||
+            error?.code === "ECONNRESET" ||
+            (typeof error?.message === "string" &&
+              (error.message.includes("prematurely closed") ||
+                error.message.includes("aborted") ||
+                error.message.includes("canceled") ||
+                error.message.includes("cancelled")));
+          if (!isClientAbort) {
+            console.error("❌ [Anthropic] Stream error:", error?.message || error);
+          }
           try {
             await write(
               `event: error\ndata: ${JSON.stringify({

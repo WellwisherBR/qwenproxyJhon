@@ -191,67 +191,81 @@ export function stripAnsi(str: string): string {
 }
 const graphemeSegmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 
+function singleGraphemeWidth(segment: string): number {
+  const code = segment.codePointAt(0) || 0;
+  // Standalone zero-width characters (variation selectors, zero-width space/joiner)
+  if (
+    segment === "\u200b" ||
+    segment === "\u200c" ||
+    segment === "\u200d" ||
+    (code >= 0xfe00 && code <= 0xfe0f && segment.length === 1)
+  ) {
+    return 0;
+  }
+  // Graphemes containing variation selector 16 (emoji presentation)
+  if (segment.includes("\ufe0f")) {
+    return 2;
+  }
+  // Specific BMP emojis and symbols that occupy 2 visual terminal cells (e.g. ⚠️, ⏱, ⚡, ✅, ❌, ✨, ☕, ⚙)
+  const isBmpEmoji =
+    code === 0x26a0 || // ⚠️ (WARNING SIGN)
+    code === 0x23f1 || // ⏱ (STOPWATCH)
+    code === 0x23f0 || // ⏰
+    code === 0x23f3 || // ⏳
+    code === 0x231a || // ⌚
+    code === 0x231b || // ⌛
+    code === 0x2705 || // ✅
+    code === 0x2728 || // ✨
+    code === 0x274c || // ❌
+    code === 0x274e || // ❎
+    code === 0x2753 || // ❓
+    code === 0x2757 || // ❗
+    code === 0x2b50 || // ⭐
+    code === 0x2b55 || // ⭕
+    code === 0x26a1 || // ⚡
+    code === 0x2615 || // ☕
+    code === 0x2699 || // ⚙
+    code === 0x2709;   // ✉
+
+  // Common emoji and CJK full-width ranges (SMP Emojis 0x1f300 - 0x1faff)
+  if (
+    isBmpEmoji ||
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe10 && code <= 0xfe19) ||
+    (code >= 0xfe30 && code <= 0xfe6f) ||
+    (code >= 0xff01 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    (code >= 0x1f300 && code <= 0x1faff)
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
 /**
  * Computes visual display width of string, accounting for wide characters,
  * grapheme clusters, variation selectors (VS16), and terminal-wide emojis.
  */
 export function stringWidth(str: string): number {
+  if (!str) return 0;
+  // Fast path for pure ASCII strings without ANSI escapes
+  let isAscii = true;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c < 32 || c > 126) {
+      isAscii = false;
+      break;
+    }
+  }
+  if (isAscii) return str.length;
+
   const clean = stripAnsi(str).replace(/\t/g, "  ").replace(/\r/g, "");
   let width = 0;
   for (const { segment } of graphemeSegmenter.segment(clean)) {
-    const code = segment.codePointAt(0) || 0;
-    // Standalone zero-width characters (variation selectors, zero-width space/joiner)
-    if (
-      segment === "\u200b" ||
-      segment === "\u200c" ||
-      segment === "\u200d" ||
-      (code >= 0xfe00 && code <= 0xfe0f && segment.length === 1)
-    ) {
-      continue;
-    }
-    // Graphemes containing variation selector 16 (emoji presentation)
-    if (segment.includes("\ufe0f")) {
-      width += 2;
-      continue;
-    }
-    // Specific BMP emojis and symbols that occupy 2 visual terminal cells (e.g. ⚠️, ⏱, ⚡, ✅, ❌, ✨, ☕, ⚙)
-    const isBmpEmoji =
-      code === 0x26a0 || // ⚠️ (WARNING SIGN)
-      code === 0x23f1 || // ⏱ (STOPWATCH)
-      code === 0x23f0 || // ⏰
-      code === 0x23f3 || // ⏳
-      code === 0x231a || // ⌚
-      code === 0x231b || // ⌛
-      code === 0x2705 || // ✅
-      code === 0x2728 || // ✨
-      code === 0x274c || // ❌
-      code === 0x274e || // ❎
-      code === 0x2753 || // ❓
-      code === 0x2757 || // ❗
-      code === 0x2b50 || // ⭐
-      code === 0x2b55 || // ⭕
-      code === 0x26a1 || // ⚡
-      code === 0x2615 || // ☕
-      code === 0x2699 || // ⚙
-      code === 0x2709;   // ✉
-
-    // Common emoji and CJK full-width ranges (SMP Emojis 0x1f300 - 0x1faff)
-    if (
-      isBmpEmoji ||
-      (code >= 0x1100 && code <= 0x115f) ||
-      (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
-      (code >= 0xac00 && code <= 0xd7a3) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xfe10 && code <= 0xfe19) ||
-      (code >= 0xfe30 && code <= 0xfe6f) ||
-      (code >= 0xff01 && code <= 0xff60) ||
-      (code >= 0xffe0 && code <= 0xffe6) ||
-      (code >= 0x1f300 && code <= 0x1faff)
-    ) {
-      width += 2;
-    } else {
-      width += 1;
-    }
+    width += singleGraphemeWidth(segment);
   }
   return width;
 }
@@ -261,8 +275,26 @@ export function stringWidth(str: string): number {
  */
 export function truncate(str: string, maxWidth: number, ellipsis = "…"): string {
   if (maxWidth <= 0) return "";
+  if (!str) return "";
+
+  // Fast path for pure ASCII strings
+  let isAscii = true;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c < 32 || c > 126) {
+      isAscii = false;
+      break;
+    }
+  }
+  if (isAscii) {
+    if (str.length <= maxWidth) return str;
+    const targetW = Math.max(0, maxWidth - 1);
+    return str.slice(0, targetW) + ellipsis;
+  }
+
   const clean = stripAnsi(str).replace(/\t/g, "  ").replace(/\r/g, "");
-  if (stringWidth(clean) <= maxWidth) return str;
+  const cleanW = stringWidth(clean);
+  if (cleanW <= maxWidth) return str;
 
   const ellipsisW = stringWidth(ellipsis);
   const targetW = Math.max(0, maxWidth - ellipsisW);
@@ -270,7 +302,7 @@ export function truncate(str: string, maxWidth: number, ellipsis = "…"): strin
   let currentW = 0;
   let result = "";
   for (const { segment } of graphemeSegmenter.segment(clean)) {
-    const segW = stringWidth(segment);
+    const segW = singleGraphemeWidth(segment);
     if (currentW + segW > targetW) break;
     currentW += segW;
     result += segment;

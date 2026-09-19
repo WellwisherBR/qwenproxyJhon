@@ -89,58 +89,56 @@ export class LogsView implements TuiView {
   }
 
   public handleKey(key: KeyEvent): boolean | void {
-    const rawEntries = ServerManager.getInstance().getLogEntries(this.filter);
-    const { chips } = this.getChips(rawEntries.length);
-
-    // Mouse hover on chips (accepts rows 3 to 6 for generous vertical target)
-    if (key.name === "hover" && key.mouse) {
+    // Mouse hover or click on chips (only compute chips when mouse is on chip rows 3 to 6)
+    if ((key.name === "hover" || key.name === "click") && key.mouse) {
       if (key.mouse.row >= 3 && key.mouse.row <= 6) {
+        const rawCount = ServerManager.getInstance().getLogEntries(this.filter).length;
+        const { chips } = this.getChips(rawCount);
         const col = key.mouse.col;
-        let target: "all" | "warn" | "error" | "copy" | "clear" | null = null;
-        for (const c of chips) {
-          if (col >= c.startCol && col <= c.endCol) {
-            target = c.id;
-            break;
+
+        if (key.name === "hover") {
+          let target: "all" | "warn" | "error" | "copy" | "clear" | null = null;
+          for (const c of chips) {
+            if (col >= c.startCol && col <= c.endCol) {
+              target = c.id;
+              break;
+            }
           }
-        }
-        if (this.hoveredChip !== target) {
-          this.hoveredChip = target;
-          return true;
+          if (this.hoveredChip !== target) {
+            this.hoveredChip = target;
+            return true;
+          }
+        } else if (key.name === "click") {
+          for (const c of chips) {
+            if (col >= c.startCol && col <= c.endCol) {
+              if (c.id === "all") {
+                this.setFilter("all");
+                return true;
+              }
+              if (c.id === "warn") {
+                this.setFilter("warn");
+                return true;
+              }
+              if (c.id === "error") {
+                this.setFilter("error");
+                return true;
+              }
+              if (c.id === "copy") {
+                this.copyLogs();
+                return true;
+              }
+              if (c.id === "clear") {
+                ServerManager.getInstance().clearLogs();
+                this.scrollOffset = 0;
+                this.selectedLogIndex = null;
+                return true;
+              }
+            }
+          }
         }
       } else if (this.hoveredChip !== null) {
         this.hoveredChip = null;
         return true;
-      }
-    }
-
-    // Mouse click on chips (accepts rows 3 to 6 for effortless immediate single-click)
-    if (key.name === "click" && key.mouse && key.mouse.row >= 3 && key.mouse.row <= 6) {
-      const col = key.mouse.col;
-      for (const c of chips) {
-        if (col >= c.startCol && col <= c.endCol) {
-          if (c.id === "all") {
-            this.setFilter("all");
-            return true;
-          }
-          if (c.id === "warn") {
-            this.setFilter("warn");
-            return true;
-          }
-          if (c.id === "error") {
-            this.setFilter("error");
-            return true;
-          }
-          if (c.id === "copy") {
-            this.copyLogs();
-            return true;
-          }
-          if (c.id === "clear") {
-            ServerManager.getInstance().clearLogs();
-            this.scrollOffset = 0;
-            this.selectedLogIndex = null;
-            return true;
-          }
-        }
       }
     }
 
@@ -351,39 +349,11 @@ export class LogsView implements TuiView {
         ? theme.bgHover(" [ C ] Limpar ")
         : theme.muted(" [ C ] Limpar ");
 
-    const formattedLines: string[] = [];
-
-    if (rawEntries.length === 0) {
-      formattedLines.push("");
-      formattedLines.push(
-        theme.muted(`  Nenhum log registrado para o filtro atual [${this.filter}].`),
-      );
-      formattedLines.push(
-        theme.muted("  Eventos de inicialização, requisições e alertas do proxy aparecerão aqui."),
-      );
-    } else {
-      for (const entry of rawEntries) {
-        if (!entry || !entry.message || !entry.message.trim()) continue;
-        let tag = theme.dim("[INFO]");
-        if (entry.level === "WARN") {
-          tag = theme.yellow("[WARN]");
-        } else if (entry.level === "ERROR") {
-          tag = theme.red("[ERR]");
-        }
-
-        const prefix = `${theme.dim(entry.time)} ${tag} `;
-        const prefixW = stringWidth(prefix);
-        const maxMsgW = Math.max(20, innerW - prefixW - 4);
-        const truncatedMsg = truncate(entry.message, maxMsgW);
-        formattedLines.push(`${prefix}${truncatedMsg}`);
-      }
-    }
-
-    this.lastTotalCount = formattedLines.length;
+    const total = rawEntries.length;
+    this.lastTotalCount = total;
 
     // Scroll Window with top margin breathing room (2 rows reserved at the top)
     const visibleCapacity = Math.max(1, contentH - 4);
-    const total = formattedLines.length;
     const maxOffset = Math.max(0, total - visibleCapacity);
     this.lastWidth = width;
     this.lastHeight = height;
@@ -394,10 +364,10 @@ export class LogsView implements TuiView {
     const scrollFromTop = maxOffset - clampedOffset;
 
     const startIndex = Math.max(0, total - visibleCapacity - clampedOffset);
-    const visibleSlice = formattedLines.slice(startIndex, startIndex + visibleCapacity);
+    const visibleEntries = total === 0 ? [] : rawEntries.slice(startIndex, startIndex + visibleCapacity);
 
     this.lastStartIndex = startIndex;
-    this.lastVisibleCount = visibleSlice.length;
+    this.lastVisibleCount = visibleEntries.length;
 
     // Scrollbar calculation
     const hasScrollbar = total > visibleCapacity;
@@ -416,33 +386,64 @@ export class LogsView implements TuiView {
     const finalRows: string[] = ["", ""];
     const boxInnerW = Math.max(1, width - 2);
 
-    for (let r = 0; r < visibleCapacity; r++) {
-      if (r < visibleSlice.length) {
-        const actualIdx = startIndex + r;
-        const rawLine = visibleSlice[r];
-        let styledText = rawLine;
-        if (this.selectedLogIndex === actualIdx) {
-          styledText = theme.bgSelected(`▸ ${stripAnsi(rawLine)} `);
-        } else {
-          styledText = `  ${rawLine}`;
-        }
-
-        if (hasScrollbar) {
-          const isThumb = r >= thumbTop && r < thumbTop + thumbSize;
-          const isHighlighted = this.isScrollbarHovered || this.isDraggingScrollbar;
-          let scrollChar: string;
-          if (isThumb) {
-            scrollChar = isHighlighted ? `\x1b[48;2;45;35;85m\x1b[38;2;0;255;255m\x1b[1m█\x1b[0m` : theme.cyan("█");
-          } else {
-            scrollChar = isHighlighted ? theme.cyan("│") : theme.dark("│");
-          }
-          const padded = pad(styledText, boxInnerW - 1);
-          finalRows.push(`${padded}${scrollChar}`);
-        } else {
-          finalRows.push(styledText);
-        }
-      } else {
+    if (total === 0) {
+      finalRows.push("");
+      finalRows.push(
+        theme.muted(`  Nenhum log registrado para o filtro atual [${this.filter}].`),
+      );
+      finalRows.push(
+        theme.muted("  Eventos de inicialização, requisições e alertas do proxy aparecerão aqui."),
+      );
+      while (finalRows.length < visibleCapacity + 2) {
         finalRows.push("");
+      }
+    } else {
+      for (let r = 0; r < visibleCapacity; r++) {
+        if (r < visibleEntries.length) {
+          const actualIdx = startIndex + r;
+          const entry = visibleEntries[r];
+          let formattedLine = "";
+          if (entry && entry.message && entry.message.trim()) {
+            let tag = theme.dim("[INFO]");
+            if (entry.level === "WARN") {
+              tag = theme.yellow("[WARN]");
+            } else if (entry.level === "ERROR") {
+              tag = theme.red("[ERR]");
+            }
+
+            const prefix = `${theme.dim(entry.time)} ${tag} `;
+            const prefixW = 16;
+            const maxMsgW = Math.max(20, innerW - prefixW - 4);
+            const truncatedMsg = truncate(entry.message, maxMsgW);
+            formattedLine = `${prefix}${truncatedMsg}`;
+          }
+
+          let styledText = formattedLine;
+          if (this.selectedLogIndex === actualIdx) {
+            styledText = theme.bgSelected(`▸ ${stripAnsi(formattedLine)} `);
+          } else {
+            styledText = `  ${formattedLine}`;
+          }
+
+          if (hasScrollbar) {
+            const isThumb = r >= thumbTop && r < thumbTop + thumbSize;
+            const isHighlighted = this.isScrollbarHovered || this.isDraggingScrollbar;
+            let scrollChar: string;
+            if (isThumb) {
+              scrollChar = isHighlighted
+                ? `\x1b[48;2;45;35;85m\x1b[38;2;0;255;255m\x1b[1m█\x1b[0m`
+                : theme.cyan("█");
+            } else {
+              scrollChar = isHighlighted ? theme.cyan("│") : theme.dark("│");
+            }
+            const padded = pad(styledText, boxInnerW - 1);
+            finalRows.push(`${padded}${scrollChar}`);
+          } else {
+            finalRows.push(styledText);
+          }
+        } else {
+          finalRows.push("");
+        }
       }
     }
 
