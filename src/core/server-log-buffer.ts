@@ -3,7 +3,9 @@
  * Captures server logs and streams them to connected TUI instances.
  */
 
+import fs from "node:fs";
 import { stripAnsi } from "../tui/theme.ts";
+import { getServerLogFilePath, ensureDataDirs, isRunningUnderNodeTest } from "./paths.ts";
 
 export interface ServerLogMessage {
   time: string;
@@ -11,10 +13,32 @@ export interface ServerLogMessage {
   message: string;
 }
 
-const MAX_LOG_HISTORY = 400;
+const MAX_LOG_HISTORY = 2000;
 const logHistory: ServerLogMessage[] = [];
 const subscribers = new Set<(entry: ServerLogMessage) => void>();
 let consoleHooked = false;
+
+function appendServerLogToFile(time: string, level: string, message: string): void {
+  if (isRunningUnderNodeTest()) return;
+  try {
+    const filePath = getServerLogFilePath();
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      if (stats.size > 20 * 1024 * 1024) { // Rotate at 20MB
+        const oldPath = filePath + ".old";
+        try {
+          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+          fs.renameSync(filePath, oldPath);
+        } catch {}
+      }
+    } else {
+      ensureDataDirs();
+    }
+    const dateStr = new Date().toLocaleDateString("pt-BR");
+    const line = `[${dateStr} ${time}] [${level}] ${message}\n`;
+    fs.appendFileSync(filePath, line, "utf-8");
+  } catch {}
+}
 
 export function recordServerLog(level: "INFO" | "WARN" | "ERROR", text: string): void {
   if (!text) return;
@@ -60,6 +84,7 @@ export function recordServerLog(level: "INFO" | "WARN" | "ERROR", text: string):
     if (logHistory.length > MAX_LOG_HISTORY) {
       logHistory.shift();
     }
+    appendServerLogToFile(time, level, line);
 
     for (const sub of subscribers) {
       try {

@@ -3,12 +3,13 @@
  * Real-time event log viewer with level filtering (All, Warnings, Errors).
  */
 
+import fs from "node:fs";
 import type { TuiView } from "../types.ts";
 import type { KeyEvent } from "../screen.ts";
 import { theme, drawBox, stringWidth, truncate, pad, stripAnsi, setClipboardText } from "../theme.ts";
 import { ServerManager } from "../server-manager.ts";
 import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
-
+import { getServerLogFilePath } from "../../core/paths.ts";
 export class LogsView implements TuiView {
   public readonly id = "logs";
   public readonly title = "Logs";
@@ -124,7 +125,7 @@ export class LogsView implements TuiView {
                 return true;
               }
               if (c.id === "copy") {
-                this.copyLogs();
+                this.copyLogs(false);
                 return true;
               }
               if (c.id === "clear") {
@@ -230,16 +231,16 @@ export class LogsView implements TuiView {
       return true;
     }
 
-    // Copy logs with 'y' or 'Y'
+    // Copy logs with 'y' or 'Y' (always copies full log)
     if ((key.name === "y" || key.name === "Y") && !key.ctrl) {
-      this.copyLogs();
+      this.copyLogs(false);
       return true;
     }
 
-    // Enter copies selected log if a row is selected
+    // Enter copies selected single line if a row is selected
     if (key.name === "return" || key.name === "enter") {
       if (this.selectedLogIndex !== null) {
-        this.copyLogs();
+        this.copyLogs(true);
         return true;
       }
     }
@@ -458,22 +459,39 @@ export class LogsView implements TuiView {
     });
     return box;
   }
-  private copyLogs(): void {
+
+  private copyLogs(singleLineOnly = false): void {
     const rawEntries = ServerManager.getInstance()
       .getLogEntries(this.filter)
       .filter((e) => e && e.message && e.message.trim().length > 0);
-    if (rawEntries.length === 0) return;
 
     let text = "";
-    if (this.selectedLogIndex !== null && rawEntries[this.selectedLogIndex]) {
+    if (singleLineOnly && this.selectedLogIndex !== null && rawEntries[this.selectedLogIndex]) {
       const entry = rawEntries[this.selectedLogIndex];
       text = `[${entry.time}] [${entry.level}] ${entry.message}`;
     } else {
-      text = rawEntries
-        .map((entry) => `[${entry.time}] [${entry.level}] ${entry.message}`)
-        .join("\n");
+      // For full copy of "all" filter, prefer the complete persistent file from disk if available
+      if (this.filter === "all") {
+        try {
+          const logPath = getServerLogFilePath();
+          if (fs.existsSync(logPath)) {
+            const diskContent = fs.readFileSync(logPath, "utf-8");
+            if (diskContent && diskContent.trim().length > 0) {
+              text = diskContent.trim();
+            }
+          }
+        } catch {}
+      }
+
+      // Fallback to memory buffer if disk log is empty or on filtered view
+      if (!text && rawEntries.length > 0) {
+        text = rawEntries
+          .map((entry) => `[${entry.time}] [${entry.level}] ${entry.message}`)
+          .join("\n");
+      }
     }
 
+    if (!text) return;
     setClipboardText(text);
     this.copyNotification = true;
     if (this.copyTimeout) clearTimeout(this.copyTimeout);
