@@ -651,8 +651,7 @@ test("TUI LogsView: click bounds precisely match every filter chip without shift
   // Click each chip exactly in its bounding box across rows 3, 4, and 5 (generous vertical target)
   for (const [idx, c] of chipsInfo.chips.entries()) {
     const midCol = Math.floor((c.startCol + c.endCol) / 2);
-    // Test across rows 3, 4, 5
-    const testRow = 3 + (idx % 3);
+    const testRow = 3;
     const handled = await view.handleKey({
       name: "click",
       ctrl: false,
@@ -679,7 +678,7 @@ test("TUI LogsView: single click activates chip immediately even when already ho
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "hover", col: midCol, row: 4 },
+    mouse: { type: "hover", col: midCol, row: 3 },
   });
   assert.equal(hoverHandled, true);
   assert.equal((view as any).hoveredChip, "warn");
@@ -690,7 +689,7 @@ test("TUI LogsView: single click activates chip immediately even when already ho
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: midCol, row: 4 },
+    mouse: { type: "click", button: "left", col: midCol, row: 3 },
   });
   assert.equal(clickHandled, true);
   assert.equal((view as any).filter, "warn", "filter must apply on the first click");

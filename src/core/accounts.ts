@@ -121,6 +121,8 @@ export function loadAccounts(): QwenAccount[] {
 export function invalidateAccountsCache(): void {
   accountsCache = null;
   accountsCacheTime = 0;
+  lastSyncedEnv = "";
+  lastSyncTime = 0;
 }
 export interface BatchAccountEntry {
   email: string;
