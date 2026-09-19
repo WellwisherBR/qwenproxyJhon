@@ -105,6 +105,9 @@ app.post("/v1/messages", async (c) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.API_KEY || config.apiKey || ""}`,
           "x-qwenproxy-route": "Anthropic",
+          ...(c.req.header("x-qwenproxy-chat-mode")
+            ? { "x-qwenproxy-chat-mode": c.req.header("x-qwenproxy-chat-mode")! }
+            : {}),
         },
         body: JSON.stringify({
           ...openaiRequest,
