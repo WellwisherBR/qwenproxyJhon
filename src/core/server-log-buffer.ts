@@ -80,9 +80,11 @@ export function recordServerLog(level: "INFO" | "WARN" | "ERROR", text: string):
       .replace(/([\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}]\uFE0F?)\s{2,}/gu, "$1 ");
     if (!line) continue;
 
-    // Prevent identical consecutive duplicate logs in the same second
-    const last = logHistory[logHistory.length - 1];
-    if (last && last.time === time && last.level === level && last.message === line) {
+    // Prevent identical duplicate logs within the same second window
+    const isDuplicate = logHistory
+      .slice(-10)
+      .some((entry) => entry.time === time && entry.level === level && entry.message === line);
+    if (isDuplicate) {
       continue;
     }
 

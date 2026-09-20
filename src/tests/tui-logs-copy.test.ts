@@ -9,15 +9,15 @@ test("TUI LogsView: copyLogs(false) copies all logs even when a line is selected
   const sm = ServerManager.getInstance();
   sm.clearLogs();
 
-  (sm as any).logEntries.push({ time: "10:00:00", level: "INFO", message: "First message" });
-  (sm as any).logEntries.push({ time: "10:00:01", level: "WARN", message: "Second warning" });
-  (sm as any).logEntries.push({ time: "10:00:02", level: "ERROR", message: "Third error" });
+  (sm as any).logEntries = [
+    { time: "10:00:00", level: "INFO", message: "First message" },
+    { time: "10:00:01", level: "WARN", message: "Second warning" },
+    { time: "10:00:02", level: "ERROR", message: "Third error" },
+  ];
 
   const view = new LogsView();
-  // Simulate user having selected line 1
   (view as any).selectedLogIndex = 1;
 
-  // Clicking "Copiar" (c.id === "copy") or pressing 'y' calls copyLogs(false)
   (view as any).copyLogs(false);
 
   const copied = getClipboardText();
@@ -30,13 +30,14 @@ test("TUI LogsView: copyLogs(true) copies only the single selected line", async 
   const sm = ServerManager.getInstance();
   sm.clearLogs();
 
-  (sm as any).logEntries.push({ time: "10:00:00", level: "INFO", message: "First message" });
-  (sm as any).logEntries.push({ time: "10:00:01", level: "WARN", message: "Second warning" });
+  (sm as any).logEntries = [
+    { time: "10:00:00", level: "INFO", message: "First message" },
+    { time: "10:00:01", level: "WARN", message: "Second warning" },
+  ];
 
   const view = new LogsView();
   (view as any).selectedLogIndex = 1;
 
-  // Pressing Enter calls copyLogs(true)
   (view as any).copyLogs(true);
 
   const copied = getClipboardText();
