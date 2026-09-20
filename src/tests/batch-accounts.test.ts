@@ -121,6 +121,37 @@ user2@test.com:pass3
   assert.ok(invalid.includes("invalid-no-email:pass2"));
   assert.ok(invalid.includes("sem-dois-pontos-nem-senha"));
 });
+test("parseBatchAccounts: strips quotes and trailing commas cleanly from pasted entries", () => {
+  const raw = `
+  "user_quoted1@test.com:pass_quoted1",
+  'user_quoted2@test.com:pass_quoted2';
+  \`user_quoted3@test.com:pass_quoted3\`
+  `;
+  const { entries, invalid } = parseBatchAccounts(raw);
+  assert.equal(entries.length, 3);
+  assert.equal(invalid.length, 0);
+  assert.equal(entries[0].email, "user_quoted1@test.com");
+  assert.equal(entries[0].password, "pass_quoted1");
+  assert.equal(entries[1].email, "user_quoted2@test.com");
+  assert.equal(entries[1].password, "pass_quoted2");
+  assert.equal(entries[2].email, "user_quoted3@test.com");
+  assert.equal(entries[2].password, "pass_quoted3");
+});
+
+test("loadAccounts: parses multiline QWEN_ACCOUNTS without requiring commas or semicolons", () => {
+  restoreRows = snapshotAccounts();
+  process.env.QWEN_ACCOUNTS = `
+  multiline1@test.com:pass1
+  multiline2@test.com:pass2
+  "multiline3@test.com:pass3"
+  `;
+  invalidateAccountsCache();
+  const accounts = loadAccounts();
+  const emails = accounts.map((a) => a.email);
+  assert.ok(emails.includes("multiline1@test.com"));
+  assert.ok(emails.includes("multiline2@test.com"));
+  assert.ok(emails.includes("multiline3@test.com"));
+});
 
 test("addAccountsBatch: inserts multiple accounts in a single transaction, skips duplicates, and encrypts passwords", () => {
   restoreRows = snapshotAccounts();

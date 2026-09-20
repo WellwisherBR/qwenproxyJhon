@@ -23,12 +23,30 @@ function parseEnvAccounts(): QwenAccount[] {
   const envAccounts = process.env.QWEN_ACCOUNTS;
   if (!envAccounts) return [];
 
-  const separator = envAccounts.includes(";") ? ";" : ",";
+  const clean = (s: string) => s.trim().replace(/^[,;\s"'`]+|[,;\s"'`]+$/g, "").trim();
 
-  return envAccounts
-    .split(separator)
+  const lines = envAccounts.split(/[\r\n;]+/);
+  const rawEntries: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = clean(rawLine);
+    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+
+    // Check if line contains multiple accounts separated by comma (e.g. "a@b.com:p1, c@d.com:p2")
+    if (line.includes(",") && (line.match(/@/g) || []).length > 1) {
+      for (const seg of line.split(",")) {
+        const trimmed = clean(seg);
+        if (trimmed) rawEntries.push(trimmed);
+      }
+    } else {
+      const trimmed = clean(line);
+      if (trimmed) rawEntries.push(trimmed);
+    }
+  }
+
+  return rawEntries
     .map((entry, index) => {
-      const trimmed = entry.trim();
+      const trimmed = clean(entry);
       const colonIdx = trimmed.indexOf(":");
       if (colonIdx === -1) {
         console.warn(
@@ -36,8 +54,8 @@ function parseEnvAccounts(): QwenAccount[] {
         );
         return null;
       }
-      const email = trimmed.substring(0, colonIdx);
-      const password = trimmed.substring(colonIdx + 1);
+      const email = clean(trimmed.substring(0, colonIdx));
+      const password = clean(trimmed.substring(colonIdx + 1));
       if (!email || !password) {
         console.warn(
           `[Accounts] Invalid QWEN_ACCOUNTS entry at index ${index}: "${trimmed}"`,
@@ -46,8 +64,8 @@ function parseEnvAccounts(): QwenAccount[] {
       }
       return {
         id: generateId(email),
-        email: email.trim(),
-        password: password.trim(),
+        email,
+        password,
       };
     })
     .filter((a): a is QwenAccount => a !== null);
@@ -160,26 +178,27 @@ export function parseBatchAccounts(rawInput: string): {
       let email = "";
       let password = "";
 
+      const clean = (s: string) => s.trim().replace(/^[,;\s"'`]+|[,;\s"'`]+$/g, "").trim();
       if (seg.includes("---")) {
         const parts = seg.split("---");
-        email = parts[0].trim();
-        password = parts.slice(1).join("---").trim();
+        email = clean(parts[0]);
+        password = clean(parts.slice(1).join("---"));
       } else if (seg.includes("\t")) {
         const parts = seg.split("\t");
-        email = parts[0].trim();
-        password = parts.slice(1).join("\t").trim();
+        email = clean(parts[0]);
+        password = clean(parts.slice(1).join("\t"));
       } else if (seg.includes(" | ")) {
         const parts = seg.split(" | ");
-        email = parts[0].trim();
-        password = parts.slice(1).join(" | ").trim();
+        email = clean(parts[0]);
+        password = clean(parts.slice(1).join(" | "));
       } else if (seg.includes(":")) {
         const colonIdx = seg.indexOf(":");
-        email = seg.slice(0, colonIdx).trim();
-        password = seg.slice(colonIdx + 1).trim();
+        email = clean(seg.slice(0, colonIdx));
+        password = clean(seg.slice(colonIdx + 1));
       } else if (seg.includes(",")) {
         const commaIdx = seg.indexOf(",");
-        email = seg.slice(0, commaIdx).trim();
-        password = seg.slice(commaIdx + 1).trim();
+        email = clean(seg.slice(0, commaIdx));
+        password = clean(seg.slice(commaIdx + 1));
       } else {
         invalid.push(seg);
         continue;

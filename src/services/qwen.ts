@@ -1793,8 +1793,9 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
         const result = await withAccountPage(
           accountId,
           async (page) => {
+            const requestId = crypto.randomUUID();
             const response = await page.evaluate(
-              async ({ payload, timeoutMs }: { payload: any; timeoutMs: number }) => {
+              async ({ payload, timeoutMs, requestId }: { payload: any; timeoutMs: number; requestId: string }) => {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 try {
@@ -1805,7 +1806,7 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
                       headers: {
                         accept: "application/json, text/plain, */*",
                         "content-type": "application/json",
-                        "x-request-id": crypto.randomUUID(),
+                        "x-request-id": requestId,
                         timezone: new Date().toString().split(" (")[0],
                         source: "web",
                       },
@@ -1818,7 +1819,7 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
                   clearTimeout(timeoutId);
                 }
               },
-              { payload, timeoutMs: config.timeouts.http },
+              { payload, timeoutMs: config.timeouts.http, requestId },
             );
             return response;
           },
@@ -2152,25 +2153,29 @@ export async function fetchQwenModels(
       const result = await withAccountPage(
         accountId,
         async (page) => {
-          const response = await page.evaluate(async (timeoutMs: number) => {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-            try {
-              const resp = await fetch("https://chat.qwen.ai/api/models", {
-                method: "GET",
-                headers: {
-                  accept: "application/json, text/plain, */*",
-                  "x-request-id": crypto.randomUUID(),
-                  timezone: new Date().toString().split(" (")[0],
-                  source: "web",
-                },
-                signal: controller.signal,
-              });
-              return { status: resp.status, body: await resp.text() };
-            } finally {
-              clearTimeout(timeoutId);
-            }
-          }, config.timeouts.http);
+          const requestId = crypto.randomUUID();
+          const response = await page.evaluate(
+            async ({ timeoutMs, requestId }: { timeoutMs: number; requestId: string }) => {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+              try {
+                const resp = await fetch("https://chat.qwen.ai/api/models", {
+                  method: "GET",
+                  headers: {
+                    accept: "application/json, text/plain, */*",
+                    "x-request-id": requestId,
+                    timezone: new Date().toString().split(" (")[0],
+                    source: "web",
+                  },
+                  signal: controller.signal,
+                });
+                return { status: resp.status, body: await resp.text() };
+              } finally {
+                clearTimeout(timeoutId);
+              }
+            },
+            { timeoutMs: config.timeouts.http, requestId },
+          );
           return response;
         },
       );

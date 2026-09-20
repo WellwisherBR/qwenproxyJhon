@@ -352,10 +352,7 @@ export async function isPageLoggedIn(
           const res = await fetch("/api/v1/auths/", { method: "GET" });
           return res.status === 200;
         } catch {
-          const btn = document.querySelector(
-            ".header-right-auth-button, button.header-right-auth-button, a[href*='/auth'], a[href*='/login']",
-          );
-          return !btn || (btn as HTMLElement).offsetWidth === 0;
+          return false;
         }
       })
       .catch(() => false);
@@ -1844,8 +1841,9 @@ async function loginViaApi(
       .digest("hex");
     const signinUrl = qwenUrl("/api/v2/auths/signin");
 
+    const requestId = crypto.randomUUID();
     const result = await page.evaluate(
-      async ({ email, password, signinUrl }) => {
+      async ({ email, password, signinUrl, requestId }) => {
         try {
           const response = await fetch(signinUrl, {
             method: "POST",
@@ -1855,7 +1853,7 @@ async function loginViaApi(
               "content-type": "application/json",
               source: "web",
               timezone: new Date().toString().split(" (")[0],
-              "x-request-id": crypto.randomUUID(),
+              "x-request-id": requestId,
             },
             body: JSON.stringify({ email, password, login_type: "email" }),
           });
@@ -1865,7 +1863,7 @@ async function loginViaApi(
           return { ok: false, error: e.message };
         }
       },
-      { email, password: hashedPassword, signinUrl },
+      { email, password: hashedPassword, signinUrl, requestId },
     );
 
     if (result.data) {
