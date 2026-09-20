@@ -299,6 +299,9 @@ export class SyncView implements TuiView {
     try {
       const res = syncAllClients({
         targets: selectedTargets,
+        model: currentModel,
+        models: this.availableModels,
+        syncAllModels: this.syncAllModels,
       });
 
       let successCount = 0;

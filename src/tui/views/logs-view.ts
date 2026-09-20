@@ -70,8 +70,8 @@ export class LogsView implements TuiView {
       chips.push({
         id: d.id,
         label: d.label,
-        startCol: startCol - (i === 0 ? 1 : 0),
-        endCol: endCol + 1,
+        startCol,
+        endCol,
       });
       currentCol += w;
     }
@@ -90,9 +90,9 @@ export class LogsView implements TuiView {
   }
 
   public handleKey(key: KeyEvent): boolean | void {
-    // Mouse hover or click on chips (only compute chips when mouse is on chip rows 3 to 6)
+    // Mouse hover or click on chips (terminal row 4 is the top border of the logs box where chips are rendered)
     if ((key.name === "hover" || key.name === "click") && key.mouse) {
-      if (key.mouse.row === 3) {
+      if (key.mouse.row === 4) {
         const rawCount = ServerManager.getInstance().getLogEntries(this.filter).length;
         const { chips } = this.getChips(rawCount);
         const col = key.mouse.col;
@@ -148,7 +148,7 @@ export class LogsView implements TuiView {
       return (
         col >= this.lastWidth - 3 &&
         col <= this.lastWidth &&
-        row >= 6 &&
+        row >= 7 &&
         row <= 6 + this.lastVisibleCapacity
       );
     };
@@ -166,7 +166,7 @@ export class LogsView implements TuiView {
     if (key.name === "click" && key.mouse && isMouseOnScrollbar(key.mouse.col, key.mouse.row)) {
       if (this.lastMaxOffset > 0 && this.lastVisibleCapacity > 0) {
         this.isDraggingScrollbar = true;
-        const r = key.mouse.row - 6;
+        const r = key.mouse.row - 7;
         const pct = Math.max(0, Math.min(1, r / Math.max(1, this.lastVisibleCapacity - 1)));
         const targetScrollFromTop = Math.round(pct * this.lastMaxOffset);
         this.scrollOffset = Math.max(0, Math.min(this.lastMaxOffset, this.lastMaxOffset - targetScrollFromTop));
@@ -178,7 +178,7 @@ export class LogsView implements TuiView {
     // Scrollbar Drag (Hold and Move)
     if (key.name === "drag" && key.mouse) {
       if (this.isDraggingScrollbar && this.lastMaxOffset > 0 && this.lastVisibleCapacity > 0) {
-        const r = key.mouse.row - 6;
+        const r = key.mouse.row - 7;
         const pct = Math.max(0, Math.min(1, r / Math.max(1, this.lastVisibleCapacity - 1)));
         const targetScrollFromTop = Math.round(pct * this.lastMaxOffset);
         this.scrollOffset = Math.max(0, Math.min(this.lastMaxOffset, this.lastMaxOffset - targetScrollFromTop));
@@ -195,9 +195,9 @@ export class LogsView implements TuiView {
       }
     }
 
-    // Mouse click on log rows (terminal row 6+, accounting for 2-line top margin: row 4 & 5 are margin)
-    if (key.name === "click" && key.mouse && key.mouse.row >= 6) {
-      const rowOffset = key.mouse.row - 6;
+    // Mouse click on log rows (terminal row 7+, accounting for 2-line top margin: row 5 & 6 are margin)
+    if (key.name === "click" && key.mouse && key.mouse.row >= 7) {
+      const rowOffset = key.mouse.row - 7;
       if (rowOffset >= 0 && rowOffset < this.lastVisibleCount) {
         const clickedIdx = this.lastStartIndex + rowOffset;
         if (this.selectedLogIndex === clickedIdx) {

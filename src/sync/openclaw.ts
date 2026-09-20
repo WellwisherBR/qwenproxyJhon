@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientSyncResult, SyncOptions } from "./types.ts";
-import { createTimestampBackup, restoreFromBackup } from "./utils.ts";
+import { createTimestampBackup, restoreFromBackup, formatModelDisplayName } from "./utils.ts";
 
 function findKeyObjectSpan(content: string, key: string): { start: number; end: number; hasTrailingComma: boolean } | null {
   const regex = new RegExp(`"${key}"\\s*:\\s*\\{`);
@@ -90,41 +90,31 @@ function buildOpenClawProviderObject(
   baseUrl: string,
   apiKey: string,
   model: string = "qwen3.8-max",
+  models?: string[],
 ): Record<string, any> {
-  const models = [
-    {
-      id: model,
-      name: model === "qwen3.8-max" ? "Qwen 3.8 Max" : model,
-      reasoning: true,
-      supportsReasoningEffort: true,
-      supportedReasoningEfforts: ["low", "medium", "high"],
-      contextWindow: 1000000,
-      maxTokens: 65536,
-    },
-  ];
-
-  if (model !== "qwen3.7-plus") {
-    models.push({
-      id: "qwen3.7-plus",
-      name: "Qwen 3.7 Plus",
-      reasoning: true,
-      supportsReasoningEffort: true,
-      supportedReasoningEfforts: ["low", "medium", "high"],
-      contextWindow: 1000000,
-      maxTokens: 65536,
-    });
-  }
+  const modelList = Array.from(
+    new Set([model, ...(models && models.length > 0 ? models : [model, "qwen3.7-plus"])].filter(Boolean)),
+  );
+  const modelEntries = modelList.map((m) => ({
+    id: m,
+    name: formatModelDisplayName(m),
+    reasoning: true,
+    supportsReasoningEffort: true,
+    supportedReasoningEfforts: ["low", "medium", "high"],
+    contextWindow: 1000000,
+    maxTokens: 65536,
+  }));
 
   return {
     baseUrl,
     apiKey,
     api: "openai-completions",
-    models,
+    models: modelEntries,
   };
 }
 
 export function syncOpenClaw(options: SyncOptions): ClientSyncResult {
-  const { filePath, apiKey, baseUrl, model = "qwen3.8-max", reasoningEffort = "high" } = options;
+  const { filePath, apiKey, baseUrl, model = "qwen3.8-max", models, reasoningEffort = "high" } = options;
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
@@ -136,7 +126,7 @@ export function syncOpenClaw(options: SyncOptions): ClientSyncResult {
       content = fs.readFileSync(filePath, "utf-8");
     }
 
-    const providerObj = buildOpenClawProviderObject(baseUrl, apiKey, model);
+    const providerObj = buildOpenClawProviderObject(baseUrl, apiKey, model, models);
     const providerJson = JSON.stringify(providerObj, null, 6)
       .split("\n")
       .map((line, idx) => (idx === 0 ? line : `        ${line}`))

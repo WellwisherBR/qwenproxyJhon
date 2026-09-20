@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientSyncResult, SyncOptions } from "./types.ts";
-import { createTimestampBackup, restoreFromBackup } from "./utils.ts";
+import { createTimestampBackup, restoreFromBackup, formatModelDisplayName } from "./utils.ts";
 
 function findKeyObjectSpan(content: string, key: string): { start: number; end: number; hasTrailingComma: boolean } | null {
   const regex = new RegExp(`"${key}"\\s*:\\s*\\{`);
@@ -90,21 +90,16 @@ function buildKiloProviderObject(
   baseUrl: string,
   apiKey: string,
   primaryModel: string = "qwen3.8-max",
+  models?: string[],
 ): Record<string, any> {
   const modelsObj: Record<string, any> = {};
-  const modelList = [primaryModel];
-  if (primaryModel !== "qwen3.7-plus") {
-    modelList.push("qwen3.7-plus");
-  }
+  const modelList = Array.from(
+    new Set([primaryModel, ...(models && models.length > 0 ? models : [primaryModel, "qwen3.7-plus"])].filter(Boolean)),
+  );
 
   for (const m of modelList) {
     modelsObj[m] = {
-      name:
-        m === "qwen3.8-max"
-          ? "Qwen 3.8 Max"
-          : m === "qwen3.7-plus"
-            ? "Qwen 3.7 Plus"
-            : m,
+      name: formatModelDisplayName(m),
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ["text", "image"], output: ["text"] },
       reasoning: true,
@@ -128,7 +123,7 @@ function buildKiloProviderObject(
 }
 
 export function syncKilo(options: SyncOptions): ClientSyncResult {
-  const { filePath, apiKey, baseUrl, model = "qwen3.8-max", setActive = true } = options;
+  const { filePath, apiKey, baseUrl, model = "qwen3.8-max", models, setActive = true } = options;
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
@@ -140,7 +135,7 @@ export function syncKilo(options: SyncOptions): ClientSyncResult {
       content = fs.readFileSync(filePath, "utf-8");
     }
 
-    const providerObj = buildKiloProviderObject(baseUrl, apiKey, model);
+    const providerObj = buildKiloProviderObject(baseUrl, apiKey, model, models);
     const providerJson = JSON.stringify(providerObj, null, 6)
       .split("\n")
       .map((line, idx) => (idx === 0 ? line : `    ${line}`))

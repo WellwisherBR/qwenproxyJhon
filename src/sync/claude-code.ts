@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientSyncResult, SyncOptions } from "./types.ts";
-import { createTimestampBackup, restoreFromBackup } from "./utils.ts";
+import { createTimestampBackup, restoreFromBackup, formatModelDisplayName } from "./utils.ts";
 
 export function syncClaudeCode(options: SyncOptions): ClientSyncResult {
   const { filePath, apiKey, baseUrl, model = "qwen3.8-max" } = options;
@@ -27,8 +27,8 @@ export function syncClaudeCode(options: SyncOptions): ClientSyncResult {
       ANTHROPIC_AUTH_TOKEN: apiKey,
       ANTHROPIC_MODEL: model,
       ANTHROPIC_CUSTOM_MODEL_OPTION: model,
-      ANTHROPIC_CUSTOM_MODEL_OPTION_NAME: "Qwen 3.8 Max (1M Context)",
-      ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION: "QwenProxy model qwen3.8-max - 1M context window",
+      ANTHROPIC_CUSTOM_MODEL_OPTION_NAME: formatModelDisplayName(model),
+      ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION: `QwenProxy ${model}`,
       ANTHROPIC_DEFAULT_SONNET_MODEL: model,
       ANTHROPIC_DEFAULT_HAIKU_MODEL: "qwen3.7-plus",
       ANTHROPIC_DEFAULT_OPUS_MODEL: model,

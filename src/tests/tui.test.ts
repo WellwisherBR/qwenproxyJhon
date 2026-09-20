@@ -648,10 +648,10 @@ test("TUI LogsView: click bounds precisely match every filter chip without shift
   const view = new LogsView();
   const chipsInfo = (view as any).getChips(2);
 
-  // Click each chip exactly in its bounding box across rows 3, 4, and 5 (generous vertical target)
+  // Click each chip exactly in its bounding box on row 4 (where the box title is rendered)
   for (const [idx, c] of chipsInfo.chips.entries()) {
     const midCol = Math.floor((c.startCol + c.endCol) / 2);
-    const testRow = 3;
+    const testRow = 4;
     const handled = await view.handleKey({
       name: "click",
       ctrl: false,
@@ -672,29 +672,49 @@ test("TUI LogsView: single click activates chip immediately even when already ho
   const warnChip = chipsInfo.chips.find((c: any) => c.id === "warn");
   const midCol = Math.floor((warnChip.startCol + warnChip.endCol) / 2);
 
-  // 1. Mouse hover over warn chip
+  // 1. Mouse hover over warn chip on row 4
   const hoverHandled = await view.handleKey({
     name: "hover",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "hover", col: midCol, row: 3 },
+    mouse: { type: "hover", col: midCol, row: 4 },
   });
   assert.equal(hoverHandled, true);
   assert.equal((view as any).hoveredChip, "warn");
 
-  // 2. Click once on warn chip - must NOT be swallowed by hover logic
+  // 2. Mouse moving into breathing margin (row 5 or 6) or header (row 3) clears hover
+  const marginHandled = await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: midCol, row: 5 },
+  });
+  assert.equal(marginHandled, true);
+  assert.equal((view as any).hoveredChip, null, "Hover must clear when moving into margin row 5");
+
+  // Re-hover on row 4
+  await view.handleKey({
+    name: "hover",
+    ctrl: false,
+    shift: false,
+    meta: false,
+    mouse: { type: "hover", col: midCol, row: 4 },
+  });
+  assert.equal((view as any).hoveredChip, "warn");
+
+  // 3. Click once on warn chip - must NOT be swallowed by hover logic
   const clickHandled = await view.handleKey({
     name: "click",
     ctrl: false,
     shift: false,
     meta: false,
-    mouse: { type: "click", button: "left", col: midCol, row: 3 },
+    mouse: { type: "click", button: "left", col: midCol, row: 4 },
   });
   assert.equal(clickHandled, true);
   assert.equal((view as any).filter, "warn", "filter must apply on the first click");
 });
-
 test("TUI ChatView: supports chat conversation scrolling with PageUp/PageDown", async () => {
   const view = new ChatView();
 

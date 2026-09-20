@@ -462,6 +462,9 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
   const apiKey = resolveApiKey(options.apiKey, config.apiKey);
   const { anthropicBaseUrl, openaiBaseUrl } = resolveBaseUrls(port, host);
   const stateFilePath = options.stateFilePath || getDefaultStateFilePath();
+  const selectedModel = options.model || "qwen3.8-max";
+  const allModels = options.models && options.models.length > 0 ? options.models : undefined;
+  const syncModels = options.syncAllModels !== false && allModels ? allModels : [selectedModel];
 
   const results: SyncAllResult = {
     apiKey,
@@ -483,6 +486,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.claudeCode,
       apiKey,
       baseUrl: anthropicBaseUrl,
+      model: selectedModel,
     });
     results.clients.claudeCode = claudeRes;
     if (claudeRes.success && claudeRes.backupPath) {
@@ -503,6 +507,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       apiKey,
       baseUrl: openaiBaseUrl,
       setActive: options.setActive ?? true,
+      model: selectedModel,
     });
     results.clients.codex = codexRes;
     if (codexRes.success && codexRes.backupPath) {
@@ -522,6 +527,8 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.openCode,
       apiKey,
       baseUrl: openaiBaseUrl,
+      model: selectedModel,
+      models: syncModels,
     });
     results.clients.openCode = openCodeRes;
     if (openCodeRes.success && openCodeRes.backupPath) {
@@ -541,6 +548,8 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.omp,
       apiKey,
       baseUrl: openaiBaseUrl,
+      model: selectedModel,
+      models: syncModels,
     });
     results.clients.omp = ompRes;
     if (ompRes.success && ompRes.backupPath) {
@@ -560,6 +569,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.hermes,
       apiKey,
       baseUrl: openaiBaseUrl,
+      model: selectedModel,
     });
     results.clients.hermes = hermesRes;
     if (hermesRes.success && hermesRes.backupPath) {
@@ -579,6 +589,8 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.openClaw,
       apiKey,
       baseUrl: openaiBaseUrl,
+      model: selectedModel,
+      models: syncModels,
     });
     results.clients.openClaw = openClawRes;
     if (openClawRes.success && openClawRes.backupPath) {
@@ -599,6 +611,8 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       apiKey,
       baseUrl: openaiBaseUrl,
       setActive: options.setActive ?? true,
+      model: selectedModel,
+      models: syncModels,
     });
     results.clients.kilo = kiloRes;
     if (kiloRes.success && kiloRes.backupPath) {
@@ -618,6 +632,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.cline,
       apiKey,
       baseUrl: openaiBaseUrl,
+      model: selectedModel,
     });
     results.clients.cline = clineRes;
     if (clineRes.success && clineRes.backupPath) {
@@ -638,6 +653,8 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       apiKey,
       baseUrl: openaiBaseUrl,
       setActive: options.setActive ?? true,
+      model: selectedModel,
+      models: syncModels,
     });
     results.clients.zed = zedRes;
     if (zedRes.success && zedRes.backupPath) {
@@ -657,6 +674,7 @@ export function syncAllClients(options: SyncAllOptions = {}): SyncAllResult {
       filePath: paths.aider,
       apiKey,
       baseUrl: openaiBaseUrl,
+      model: selectedModel,
     });
     results.clients.aider = aiderRes;
     if (aiderRes.success && aiderRes.backupPath) {

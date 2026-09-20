@@ -14,11 +14,11 @@ import {
   closeAllPlaywright,
   getActivePlaywrightAccountIds,
 } from "./playwright.ts";
+import { isChatSessionActive } from "./qwen-thread-state.ts";
+import { hasActiveAccountLease, isAccountBusy } from "../core/account-concurrency.ts";
 import { isAuthMockEnabled } from "./auth-playwright.ts";
 import { maskEmail, logger } from "../core/logger.ts";
 import { config } from "../core/config.ts";
-import { isAccountBusy } from "../core/account-concurrency.ts";
-import { isChatSessionActive } from "./qwen-thread-state.ts";
 import { sleep } from "./human-behavior.ts";
 import { metrics } from "../core/metrics.ts";
 
@@ -246,11 +246,16 @@ export async function cleanOldChatsForAccount(
           : new Date(chat.updated_at).getTime();
 
       if (now - updatedMs >= maxAgeMs) {
+        // Cooperative yield: if account becomes active with a request, stop cleanup immediately
+        if (hasActiveAccountLease(accountId) || isAccountBusy(accountId)) {
+          break;
+        }
+
         const ok = await deleteSingleQwenChat(accountId, chat.id);
         if (ok) {
           cleaned++;
           metrics.increment("chats.cleaned");
-          await sleep(300);
+          await sleep(150);
         }
       }
     }
@@ -281,6 +286,8 @@ export function scheduleStartupChatCleanup(): void {
     try {
       const activeIds = getActivePlaywrightAccountIds();
       for (const accountId of activeIds) {
+        // Yield to active requests: skip if account is busy serving a stream or lease
+        if (hasActiveAccountLease(accountId) || isAccountBusy(accountId)) continue;
         await cleanOldChatsForAccount(accountId);
         await sleep(1_000);
       }

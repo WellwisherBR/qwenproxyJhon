@@ -2606,7 +2606,9 @@ async function refreshHeadersInternal(
           ),
         });
         const url = page.url();
-        if (url.includes("auth") || url.includes("login")) {
+        const isAuthUrl = url.includes("auth") || url.includes("login");
+        const isLoggedIn = isAuthUrl ? false : await isPageLoggedIn(page, 5_000);
+        if (isAuthUrl || !isLoggedIn) {
           console.warn(
             `⚠️  [Playwright] Session expired during refresh for ${accountId}, re-authenticating...`,
           );

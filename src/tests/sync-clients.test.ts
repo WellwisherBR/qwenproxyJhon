@@ -519,3 +519,63 @@ test("restoreAllClients: merges state across multiple syncAllClients and support
 
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test("sync Claude Code: supports custom model and removes 1M Context suffix for minimalist display", () => {
+  const tmp = createTempDir();
+  const filePath = path.join(tmp, "settings.json");
+
+  const res = syncClaudeCode({
+    filePath,
+    apiKey: "test-token",
+    baseUrl: "http://127.0.0.1:7936",
+    model: "qwen3.8-omni-flash",
+  });
+  assert.equal(res.success, true);
+
+  const updated = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  assert.equal(updated.env.ANTHROPIC_MODEL, "qwen3.8-omni-flash");
+  assert.equal(updated.env.ANTHROPIC_CUSTOM_MODEL_OPTION, "qwen3.8-omni-flash");
+  assert.equal(updated.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME, "Qwen 3.8 Omni Flash");
+  assert.equal(updated.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION, "QwenProxy qwen3.8-omni-flash");
+  assert.ok(!updated.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME.includes("1M Context"));
+  assert.ok(!updated.env.ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION.includes("1M context window"));
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("syncAllClients: respects custom model parameter across multiple clients", () => {
+  const tmp = createTempDir();
+  const claudePath = path.join(tmp, ".claude", "settings.json");
+  const codexPath = path.join(tmp, ".codex", "config.toml");
+  const openCodePath = path.join(tmp, ".opencode", "config.json");
+
+  const syncResult = syncAllClients({
+    model: "qwen3.8-omni-flash",
+    targets: ["claude-code", "codex", "opencode"],
+    customPaths: {
+      claudeCode: claudePath,
+      codex: codexPath,
+      openCode: openCodePath,
+    },
+  });
+
+  assert.equal(syncResult.clients.claudeCode?.success, true);
+  assert.equal(syncResult.clients.codex?.success, true);
+  assert.equal(syncResult.clients.openCode?.success, true);
+
+  // Verify Claude Code
+  const claudeData = JSON.parse(fs.readFileSync(claudePath, "utf-8"));
+  assert.equal(claudeData.env.ANTHROPIC_MODEL, "qwen3.8-omni-flash");
+  assert.equal(claudeData.env.ANTHROPIC_CUSTOM_MODEL_OPTION_NAME, "Qwen 3.8 Omni Flash");
+
+  // Verify Codex
+  const codexContent = fs.readFileSync(codexPath, "utf-8");
+  assert.ok(codexContent.includes('model = "qwen3.8-omni-flash"'));
+
+  // Verify OpenCode
+  const openCodeData = JSON.parse(fs.readFileSync(openCodePath, "utf-8"));
+  assert.ok(openCodeData.provider.qwenproxy.models["qwen3.8-omni-flash"]);
+  assert.equal(openCodeData.provider.qwenproxy.models["qwen3.8-omni-flash"].name, "Qwen 3.8 Omni Flash");
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+});

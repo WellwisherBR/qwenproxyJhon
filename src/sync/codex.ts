@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ClientSyncResult, SyncOptions } from "./types.ts";
-import { createTimestampBackup, restoreFromBackup } from "./utils.ts";
+import { createTimestampBackup, restoreFromBackup, formatModelDisplayName } from "./utils.ts";
 
 function updateTopLevelKey(content: string, key: string, value: string | number): string {
   // Find first section header [section]
@@ -75,8 +75,8 @@ experimental_bearer_token = "${apiKey}"
               catalog.models.unshift({
                 ...template,
                 slug: model,
-                display_name: `Qwen (${model})`,
-                description: `QwenProxy ${model} with 1,000,000 token context window`,
+                display_name: formatModelDisplayName(model),
+                description: `QwenProxy ${model}`,
                 context_window: 1000000,
                 max_context_window: 1000000,
               });

@@ -19,6 +19,7 @@ function parseArgs() {
     host?: string;
     setActive: boolean;
     targets: SyncClientName[];
+    model?: string;
   } = {
     restore: false,
     list: false,
@@ -43,6 +44,8 @@ function parseArgs() {
       options.host = args[++i];
     } else if (arg === "--no-active") {
       options.setActive = false;
+    } else if ((arg === "--model" || arg === "-m") && args[i + 1]) {
+      options.model = args[++i];
     } else if (arg === "--client" && args[i + 1]) {
       const normalized = normalizeClientName(args[++i]);
       if (normalized) options.targets.push(normalized);
@@ -78,6 +81,7 @@ Exemplos:
 
 Opções:
   --client <nome>    Nome do cliente (hermes, opencode, claude, openclaw, kilo, cline, omp, codex, zed, aider)
+  --model <modelo>   Modelo padrão a configurar (padrão: qwen3.8-max)
   --api-key <chave>  Sobrescrever chave de API (padrão: lê do .env ou usa sk-qwenproxy-local)
   --port <porta>     Sobrescrever porta do servidor (padrão: lê do .env ou usa 7936)
   --host <host>      Sobrescrever host do servidor (padrão: 127.0.0.1)
@@ -165,6 +169,7 @@ async function main() {
     host: options.host,
     setActive: options.setActive,
     targets: options.targets.length > 0 ? options.targets : undefined,
+    model: options.model,
   });
 
   console.log(`🔑 Chave API:   ${result.apiKey}`);

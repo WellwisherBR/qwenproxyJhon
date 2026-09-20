@@ -54,3 +54,21 @@ export function restoreFromBackup(filePath: string, backupPath?: string): boolea
   }
   return true;
 }
+
+/**
+ * Format internal model slug to clean human-readable display name without bulky suffixes.
+ * E.g. "qwen3.8-max" -> "Qwen 3.8 Max", "qwen3.8-omni-flash" -> "Qwen 3.8 Omni Flash"
+ */
+export function formatModelDisplayName(model: string): string {
+  if (model === "qwen3.8-max") return "Qwen 3.8 Max";
+  if (model === "qwen3.8-omni-flash") return "Qwen 3.8 Omni Flash";
+  if (model === "qwen3.7-plus") return "Qwen 3.7 Plus";
+  if (model === "qwen3.6-plus") return "Qwen 3.6 Plus";
+  return model
+    .replace(/^qwen/i, "Qwen ")
+    .split(/[-_]/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

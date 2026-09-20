@@ -1150,27 +1150,19 @@ async function tryCreateStreamWithRetry(
 			const hasRequestPersonalization =
 				params.requestPersonalizationInstruction !== null &&
 				params.requestPersonalizationInstruction !== undefined;
-			const releasePersonalization = hasRequestPersonalization
-				? await acquirePersonalizationLock(currentAccountId)
-				: null;
-			// A same-session retry (or client disconnect) can abort this request
-			// while the personalization sync is still stuck on a hung page op
-			// (closed Playwright context / WAF). The sync never resolves, so the
-			// finally below would not run and the mutex would stay held for
-			// minutes, blocking the retry until its 60s acquire timeout fires.
-			// Release the lock immediately on abort instead.
-			const onPersonalizationAbort = () => releasePersonalization?.();
-			if (combinedSignal.aborted) {
-				onPersonalizationAbort();
-			} else {
-				combinedSignal.addEventListener("abort", onPersonalizationAbort, {
-					once: true,
-				});
-			}
 			let result: Awaited<ReturnType<typeof createQwenStream>>;
-			try {
-				let promptForUpstream = effectivePrompt;
-				if (hasRequestPersonalization) {
+			let promptForUpstream = effectivePrompt;
+			if (hasRequestPersonalization) {
+				const releasePersonalization = await acquirePersonalizationLock(currentAccountId);
+				const onPersonalizationAbort = () => releasePersonalization();
+				if (combinedSignal.aborted) {
+					onPersonalizationAbort();
+				} else {
+					combinedSignal.addEventListener("abort", onPersonalizationAbort, {
+						once: true,
+					});
+				}
+				try {
 					// Let the hash-based cache in syncQwenRequestPersonalization decide
 					// whether to actually POST. A new chat does not imply the account's
 					// global settings were reset — only session refresh or profile reset
@@ -1244,12 +1236,25 @@ async function tryCreateStreamWithRetry(
 							`personalization sync not confirmed for ${currentAccountEmail}: ${syncFailure ?? "settings response did not confirm the instruction"}`,
 						);
 					}
-					}
-					if (logger.isLevelEnabled("info")) {
-						console.log(
-							`⏱️ [Chat] Acquire: sync | account=${currentAccountEmail} | +${Date.now() - acquireStartedAt}ms`,
-						);
-					}
+				} finally {
+					combinedSignal.removeEventListener("abort", onPersonalizationAbort);
+					releasePersonalization();
+				}
+
+				if (logger.isLevelEnabled("info")) {
+					console.log(
+						`⏱️ [Chat] Acquire: sync | account=${currentAccountEmail} | +${Date.now() - acquireStartedAt}ms`,
+					);
+				}
+
+				if (combinedSignal.aborted) {
+					accountLease?.release();
+					return {
+						success: false,
+						error: new ClientAbortedError("client aborted during personalization sync"),
+					};
+				}
+			}
 
 					assertPromptWithinLimits(
 					promptForUpstream,
@@ -1350,13 +1355,6 @@ async function tryCreateStreamWithRetry(
 						},
 					};
 				}
-			} finally {
-				combinedSignal.removeEventListener(
-					"abort",
-					onPersonalizationAbort,
-				);
-				releasePersonalization?.();
-			}
 
 			// Client cancelled (or a same-session retry superseded us) during the
 			// (potentially slow) personalization sync. Bail before createQwenStream

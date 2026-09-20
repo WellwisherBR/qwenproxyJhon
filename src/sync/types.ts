@@ -26,6 +26,7 @@ export interface SyncOptions {
   apiKey: string;
   baseUrl: string;
   model?: string;
+  models?: string[];
   setActive?: boolean;
   reasoningEffort?: "low" | "medium" | "high" | "none";
   modelSettingsPath?: string;
@@ -38,6 +39,9 @@ export interface SyncAllOptions {
   setActive?: boolean;
   stateFilePath?: string;
   targets?: SyncClientName[];
+  model?: string;
+  models?: string[];
+  syncAllModels?: boolean;
   customPaths?: {
     claudeCode?: string;
     codex?: string;
