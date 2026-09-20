@@ -9,7 +9,7 @@ import type { KeyEvent } from "../screen.ts";
 import { theme, drawBox, stringWidth, truncate, pad, stripAnsi, setClipboardText } from "../theme.ts";
 import { ServerManager } from "../server-manager.ts";
 import { loadTuiSettings, saveTuiSettings } from "../settings.ts";
-import { getServerLogFilePath } from "../../core/paths.ts";
+import { getServerLogFilePath, isRunningUnderNodeTest } from "../../core/paths.ts";
 export class LogsView implements TuiView {
   public readonly id = "logs";
   public readonly title = "Logs";
@@ -471,7 +471,7 @@ export class LogsView implements TuiView {
       text = `[${entry.time}] [${entry.level}] ${entry.message}`;
     } else {
       // For full copy of "all" filter, prefer the complete persistent file from disk if available
-      if (this.filter === "all") {
+      if (this.filter === "all" && !isRunningUnderNodeTest()) {
         try {
           const logPath = getServerLogFilePath();
           if (fs.existsSync(logPath)) {

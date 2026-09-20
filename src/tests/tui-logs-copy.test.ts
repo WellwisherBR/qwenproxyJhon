@@ -49,3 +49,28 @@ test("Paths: getServerLogFilePath returns path in data/logs directory", () => {
   assert.ok(logPath.endsWith("server.log"));
   assert.ok(logPath.includes("logs"));
 });
+
+test("ServerLogBuffer: prevents duplicate logs when called consecutively in the same second", async () => {
+  const { recordServerLog, getServerLogHistory } = await import("../core/server-log-buffer.ts");
+  const startLen = getServerLogHistory().length;
+  recordServerLog("INFO", "De-dup test message unique 12345");
+  recordServerLog("INFO", "De-dup test message unique 12345");
+  const history = getServerLogHistory().slice(startLen);
+  const matching = history.filter((h) => h.message === "De-dup test message unique 12345");
+  assert.equal(matching.length, 1, "Must only record duplicate message once");
+});
+
+test("ServerManager + hookServerConsoleForLogging: logs are never duplicated in log history", async () => {
+  const { recordServerLog, getServerLogHistory, hookServerConsoleForLogging } = await import("../core/server-log-buffer.ts");
+  const sm = ServerManager.getInstance();
+  sm.interceptLogs();
+  hookServerConsoleForLogging();
+
+  const startLen = getServerLogHistory().length;
+  console.log("No duplicate logging test 98765");
+  sm.restoreLogs();
+
+  const history = getServerLogHistory().slice(startLen);
+  const matching = history.filter((h) => h.message === "No duplicate logging test 98765");
+  assert.equal(matching.length, 1, "Must record console.log exactly once across TUI and server buffer");
+});

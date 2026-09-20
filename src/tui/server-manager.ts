@@ -6,7 +6,6 @@
 import { config } from "../core/config.ts";
 import { startServer, stopServer } from "../api/server.ts";
 import { stripAnsi } from "./theme.ts";
-import { recordServerLog } from "../core/server-log-buffer.ts";
 
 export type ServerLifecycleState = "offline" | "warming" | "online" | "error";
 export interface ServerLogEntry {
@@ -137,9 +136,6 @@ export class ServerManager {
       if (this.logBuffer.length > 2000) {
         this.logBuffer.shift();
       }
-      try {
-        recordServerLog(level, line);
-      } catch {}
     }
   }
   public interceptLogs(): void {

@@ -79,6 +79,13 @@ export function recordServerLog(level: "INFO" | "WARN" | "ERROR", text: string):
       .replace(/^(?:\[?(?:INFO|WARN|WARNING|ERROR|ERR|DEBUG)\]?\s+)+/i, "")
       .replace(/([\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}]\uFE0F?)\s{2,}/gu, "$1 ");
     if (!line) continue;
+
+    // Prevent identical consecutive duplicate logs in the same second
+    const last = logHistory[logHistory.length - 1];
+    if (last && last.time === time && last.level === level && last.message === line) {
+      continue;
+    }
+
     const entry: ServerLogMessage = { time, level, message: line };
     logHistory.push(entry);
     if (logHistory.length > MAX_LOG_HISTORY) {
