@@ -1,4 +1,7 @@
-import "dotenv/config";
+process.env.DOTENV_CONFIG_QUIET = "true";
+import fs from "node:fs";
+import dotenv from "dotenv";
+import { ensureDataDirs, getEnvFilePath } from "./core/paths.ts";
 import {
   syncAllClients,
   restoreAllClients,
@@ -7,6 +10,14 @@ import {
   inspectClientSyncStatus,
 } from "./sync/index.ts";
 import type { SyncClientName } from "./sync/types.ts";
+
+ensureDataDirs();
+const envPath = getEnvFilePath();
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath, quiet: true });
+} else {
+  dotenv.config({ quiet: true });
+}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -82,7 +93,7 @@ Exemplos:
 Opções:
   --client <nome>    Nome do cliente (hermes, opencode, claude, openclaw, kilo, cline, omp, codex, zed, aider)
   --model <modelo>   Modelo padrão a configurar (padrão: qwen3.8-max)
-  --api-key <chave>  Sobrescrever chave de API (padrão: lê do .env ou usa sk-qwenproxy-local)
+  --api-key <chave>  Sobrescrever chave de API (obrigatória; não usa placeholder)
   --port <porta>     Sobrescrever porta do servidor (padrão: lê do .env ou usa 7936)
   --host <host>      Sobrescrever host do servidor (padrão: 127.0.0.1)
   --no-active        Não definir o modelo ativo como padrão (apenas adiciona o provider)

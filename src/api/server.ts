@@ -22,6 +22,13 @@ import { sendOpenAIError } from "./error-helpers.js";
 import { AuthError, NotFoundError } from "../core/errors.js";
 import type { QwenAccount } from "../core/accounts.js";
 import { isAuthMockEnabled } from "../services/auth-playwright.js";
+import {
+  assertBindAllowed,
+  ensureRuntimeApiKey,
+  getRuntimeApiKey,
+  isLoopbackHost,
+  isPlaceholderApiKey,
+} from "../core/local-auth.ts";
 
 import {
   hookServerConsoleForLogging,
@@ -79,36 +86,58 @@ export function setCacheForTesting(nextCache: MemoryCache | undefined): void {
 
 // Middleware must be registered BEFORE routes
 
-// CORS: browser-based clients (OpenWebUI, web frontends on another origin)
-// preflight before the Authorization header is sent, so OPTIONS short-circuits
-// BEFORE the /v1/* auth middleware. Default is permissive (doc checklist item
-// 2); set CORS_ORIGIN to lock it down.
-const corsOrigin = process.env.CORS_ORIGIN || "*";
+// Explicit CORS configuration wins. Without it, browser clients running on a
+// loopback origin are allowed while arbitrary pages cannot drive the local API.
+function getCorsOrigin(requestOrigin?: string): string {
+  const configured = (process.env.CORS_ORIGIN || "").trim();
+  if (configured) return configured;
+  if (!requestOrigin) return "";
+
+  try {
+    const origin = new URL(requestOrigin);
+    if (
+      (origin.protocol === "http:" || origin.protocol === "https:") &&
+      isLoopbackHost(origin.hostname)
+    ) {
+      return requestOrigin;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 app.use("*", async (c, next) => {
-  c.header("Access-Control-Allow-Origin", corsOrigin);
-  c.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  );
-  c.header(
-    "Access-Control-Allow-Headers",
-    "Authorization, Content-Type, X-Request-Id, x-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id",
-  );
-  c.header(
-    "Access-Control-Expose-Headers",
-    "X-Request-Id, X-Response-Time, openai-version, openai-processing-ms, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-ratelimit-limit-tokens, x-ratelimit-remaining-tokens, x-ratelimit-reset-tokens",
-  );
+  const corsOrigin = getCorsOrigin(c.req.header("Origin"));
+  if (corsOrigin) {
+    c.header("Access-Control-Allow-Origin", corsOrigin);
+    c.header("Vary", "Origin");
+    c.header(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    );
+    c.header(
+      "Access-Control-Allow-Headers",
+      "Authorization, Content-Type, X-Request-Id, x-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
+    );
+    c.header(
+      "Access-Control-Expose-Headers",
+      "X-Request-Id, X-Response-Time, openai-version, openai-processing-ms, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-ratelimit-limit-tokens, x-ratelimit-remaining-tokens, x-ratelimit-reset-tokens",
+    );
+  }
   if (c.req.method === "OPTIONS") {
-    // Hono does not merge c.header() values into a manually constructed
-    // Response, so the preflight carries its CORS headers explicitly.
+    if (!corsOrigin) {
+      return new Response(null, { status: 204 });
+    }
     return new Response(null, {
       status: 204,
       headers: {
         "Access-Control-Allow-Origin": corsOrigin,
+        Vary: "Origin",
         "Access-Control-Allow-Methods":
           "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         "Access-Control-Allow-Headers":
-          "Authorization, Content-Type, X-Request-Id, x-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id",
+          "Authorization, Content-Type, X-Request-Id, x-api-key, OpenAI-Organization, OpenAI-Project, X-Client-Request-Id, X-QwenProxy-Chat-Mode",
         "Access-Control-Expose-Headers":
           "X-Request-Id, X-Response-Time, openai-version, openai-processing-ms, x-ratelimit-limit-requests, x-ratelimit-remaining-requests, x-ratelimit-reset-requests, x-ratelimit-limit-tokens, x-ratelimit-remaining-tokens, x-ratelimit-reset-tokens",
       },
@@ -187,7 +216,10 @@ function extractProvidedApiKeys(c: Context): string[] {
 }
 
 function verifyApiKey(c: Context): Response | null {
-  const apiKey = process.env.API_KEY || config.apiKey;
+  const apiKey = (process.env.API_KEY || config.apiKey || "").trim();
+  if (isLoopbackHost(config.server.host) && isPlaceholderApiKey(apiKey)) {
+    return null;
+  }
   if (!apiKey) return null;
 
   const candidates = extractProvidedApiKeys(c);
@@ -286,8 +318,21 @@ for (const [from, to] of LEGACY_REDIRECTS) {
 
 app.get("/health", async (c) => {
   const status = await watchdog?.getStatus();
-  return c.json({
+  const publicBody = {
     status: status?.overall || "unknown",
+    timestamp: Date.now(),
+  };
+  const apiKeyConfigured = Boolean(getRuntimeApiKey() || config.apiKey);
+  const authError = verifyApiKey(c);
+  if (apiKeyConfigured && authError) {
+    return c.json(publicBody);
+  }
+  if (!apiKeyConfigured) {
+    return c.json(publicBody);
+  }
+
+  return c.json({
+    ...publicBody,
     ram: status?.ram || "unknown",
     streams: status?.streams || "unknown",
     heap: status?.heap
@@ -299,7 +344,6 @@ app.get("/health", async (c) => {
           usagePercent: Number(status.heap.usagePercent.toFixed(2)),
         }
       : undefined,
-    timestamp: Date.now(),
     readyAccounts: (await import("../core/account-manager.js")).getHeadersReadyAccountIds(),
     activeAccounts: (await import("../services/playwright.js")).getActivePlaywrightAccountIds(),
     metrics: {
@@ -354,10 +398,14 @@ app.get("/metrics", (c) => {
 });
 
 app.get("/logs", (c) => {
+  const error = verifyApiKey(c);
+  if (error) return error;
   return c.json(getServerLogHistory());
 });
 
 app.get("/logs/live", (c) => {
+  const error = verifyApiKey(c);
+  if (error) return error;
   const encoder = new TextEncoder();
   return c.body(
     new ReadableStream({
@@ -706,9 +754,8 @@ export async function startServer(options?: {
     cache = new MemoryCache();
     await cache.connect();
 
-    if (!config.apiKey && config.server.host === "0.0.0.0") {
-      // API key status will be shown in startup banner
-    }
+    ensureRuntimeApiKey(config.server.host);
+    assertBindAllowed(config.server.host, getRuntimeApiKey() || config.apiKey);
 
     const { loadAccounts, getAccountCredentials } =
       await import("../core/accounts.ts");

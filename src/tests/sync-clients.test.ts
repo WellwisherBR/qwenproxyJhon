@@ -32,7 +32,7 @@ function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "qwenproxy-sync-test-"));
 }
 
-test("sync: resolveApiKey returns configured key, env API_KEY, or falls back to sk-qwenproxy-local", () => {
+test("sync: resolveApiKey uses a configured key and preserves loopback compatibility", () => {
   assert.equal(resolveApiKey("custom-key", ""), "custom-key");
   assert.equal(resolveApiKey(undefined, "env-admin-key"), "env-admin-key");
 
@@ -49,7 +49,21 @@ test("sync: resolveApiKey returns configured key, env API_KEY, or falls back to 
   }
 
   assert.equal(resolveApiKey(undefined, ""), "sk-qwenproxy-local");
-  assert.equal(resolveApiKey(undefined, undefined), "sk-qwenproxy-local");
+  assert.equal(
+    resolveApiKey("sk-qwenproxy-local", ""),
+    "sk-qwenproxy-local",
+  );
+});
+
+test("sync: resolveApiKey rejects a placeholder for non-loopback servers", () => {
+  assert.throws(
+    () => resolveApiKey(undefined, "", "0.0.0.0"),
+    /placeholder API key/,
+  );
+  assert.throws(
+    () => resolveApiKey("sk-qwenproxy-local", "", "192.168.1.10"),
+    /placeholder API key/,
+  );
 });
 
 test("sync: resolveBaseUrls computes correct URLs for Anthropic and OpenAI protocols", () => {
@@ -198,6 +212,7 @@ test("sync OpenCode: preserves comments and sibling providers, adds qwenproxy, a
     filePath,
     apiKey: "sk-test",
     baseUrl: "http://127.0.0.1:3000/v1",
+    setActive: false,
   });
 
   assert.equal(res.success, true);
@@ -220,6 +235,55 @@ test("sync OpenCode: preserves comments and sibling providers, adds qwenproxy, a
   const restored = restoreOpenCode(filePath, res.backupPath);
   assert.equal(restored.success, true);
   assert.equal(fs.readFileSync(filePath, "utf-8"), originalJsonc);
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("sync OpenCode: sets qwenproxy/model as default unless --no-active", () => {
+  const tmp = createTempDir();
+  const createdPath = path.join(tmp, "created.json");
+  const existingPath = path.join(tmp, "existing.jsonc");
+
+  const created = syncOpenCode({
+    filePath: createdPath,
+    apiKey: "sk-test",
+    baseUrl: "http://127.0.0.1:7936/v1",
+    model: "qwen3.8-max",
+  });
+  assert.equal(created.success, true);
+  const createdBody = fs.readFileSync(createdPath, "utf-8");
+  assert.ok(createdBody.includes('"model": "qwenproxy/qwen3.8-max"'));
+
+  fs.writeFileSync(
+    existingPath,
+    `{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4",
+  "provider": {}
+}
+`,
+    "utf-8",
+  );
+  const updated = syncOpenCode({
+    filePath: existingPath,
+    apiKey: "sk-test",
+    baseUrl: "http://127.0.0.1:7936/v1",
+    model: "qwen3.8-max",
+  });
+  assert.equal(updated.success, true);
+  const updatedBody = fs.readFileSync(existingPath, "utf-8");
+  assert.ok(updatedBody.includes('"model": "qwenproxy/qwen3.8-max"'));
+  assert.ok(!updatedBody.includes("anthropic/claude-sonnet-4"));
+
+  const inactivePath = path.join(tmp, "inactive.json");
+  const inactive = syncOpenCode({
+    filePath: inactivePath,
+    apiKey: "sk-test",
+    baseUrl: "http://127.0.0.1:7936/v1",
+    setActive: false,
+  });
+  assert.equal(inactive.success, true);
+  assert.ok(!fs.readFileSync(inactivePath, "utf-8").includes('"model"'));
 
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -484,6 +548,7 @@ test("restoreAllClients: merges state across multiple syncAllClients and support
     targets: ["claude-code"],
     customPaths: { claudeCode: claudePath, codex: codexPath } as any,
     stateFilePath,
+    apiKey: "sk-test-sync",
   });
 
   // Sync 2: Codex only (must merge into stateFilePath, not overwrite Claude!)
@@ -491,6 +556,7 @@ test("restoreAllClients: merges state across multiple syncAllClients and support
     targets: ["codex"],
     customPaths: { claudeCode: claudePath, codex: codexPath } as any,
     stateFilePath,
+    apiKey: "sk-test-sync",
   });
 
   const state = JSON.parse(fs.readFileSync(stateFilePath, "utf-8"));
@@ -552,6 +618,7 @@ test("syncAllClients: respects custom model parameter across multiple clients", 
   const syncResult = syncAllClients({
     model: "qwen3.8-omni-flash",
     targets: ["claude-code", "codex", "opencode"],
+    apiKey: "sk-test-sync",
     customPaths: {
       claudeCode: claudePath,
       codex: codexPath,
