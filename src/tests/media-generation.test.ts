@@ -28,6 +28,9 @@ test("Media Generation Utils: looksLikeAntiBotChallengeText detects challenge ma
   assert.equal(looksLikeAntiBotChallengeText("security verification required"), true);
   assert.equal(looksLikeAntiBotChallengeText("human verification failed"), true);
   assert.equal(looksLikeAntiBotChallengeText("denyfromx5 rule triggered"), true);
+  assert.equal(looksLikeAntiBotChallengeText('<meta name="aliyun_waf_aa" content="xyz">'), true);
+  assert.equal(looksLikeAntiBotChallengeText('appkey: "CF_APP_WAF"'), true);
+  assert.equal(looksLikeAntiBotChallengeText('<!doctype html><html><body>challenge</body></html>'), true);
 });
 
 test("Media Generation Utils: shortMediaId and mediaLog helper formatting", () => {
