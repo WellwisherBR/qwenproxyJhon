@@ -2822,6 +2822,11 @@ export async function withAccountPage<T>(
   mutexTimeoutMs = PLAYWRIGHT_MUTEX_WAIT_MS,
   recoverOnTimeout = true,
 ): Promise<T> {
+  const inFlightInit = inFlightAccountInits.get(accountId);
+  if (inFlightInit) {
+    await inFlightInit.catch(() => {});
+  }
+
   const page = accountPages.get(accountId);
   if (!page || page.isClosed()) {
     throw new Error(`Playwright page unavailable for account: ${accountId}`);
