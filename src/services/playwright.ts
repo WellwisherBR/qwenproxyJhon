@@ -2355,6 +2355,11 @@ export async function captureQwenHeaders(
             `⚠️  [Playwright] Session expired during header capture for ${accountId}; re-authenticating...`,
           );
           const ok = await loginToQwen(accountId, creds.email, creds.password);
+          if (ok) {
+            // Re-login navigated; load the chat page and wait for hydration so
+            // the check below probes a live authenticated chat page.
+            await openChatPage();
+          }
           if (!ok || !(await isPageLoggedIn(page))) {
             settle(
               new Error(
@@ -2363,9 +2368,6 @@ export async function captureQwenHeaders(
             );
             return;
           }
-          // Re-login navigated away; reload the chat page so the send below
-          // types into a live chat input (never leave the loop parked).
-          await openChatPage();
           if (settled || page.isClosed()) return;
         } else {
           settle(
