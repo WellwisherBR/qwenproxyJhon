@@ -1499,15 +1499,17 @@ export async function initPlaywrightForAccount(
             waitUntil: "domcontentloaded",
             timeout: config.timeouts.navigation,
           });
-          await sleep(2000);
-          const loggedIn = await isPageLoggedIn(acctPage);
+          await sleep(1500);
+          const currentUrl = acctPage.url();
+          const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
+          const loggedIn = !isAuthUrl && (await isPageLoggedIn(acctPage, 3000));
           if (!loggedIn) {
             if (account.email && account.password) {
               console.warn(
                 `⚠️  [Playwright] Session expired for ${maskEmail(account.email)}, re-authenticating...`,
               );
               const ok = await loginToQwen(account.id, account.email, account.password);
-              if (!ok || !(await isPageLoggedIn(acctPage))) {
+              if (!ok || acctPage.url().includes("/auth")) {
                 validationError = new Error(
                   `Session expired for ${maskEmail(account.email)} and re-authentication failed`,
                 );
@@ -1926,7 +1928,12 @@ async function loginViaApi(
             timeout: config.timeouts.navigation,
           })
           .catch(() => {});
-        await sleep(2000);
+        await sleep(1000);
+        const url = page.url();
+        const isLogged = !(url.includes("/auth") || url.includes("/login"));
+        if (isLogged) {
+          return { success: true };
+        }
         const loggedIn = await isPageLoggedIn(page);
         if (loggedIn) {
           return { success: true };
@@ -1953,7 +1960,12 @@ async function loginViaApi(
           timeout: config.timeouts.navigation,
         })
         .catch(() => {});
-      await sleep(2000);
+      await sleep(1000);
+      const url = page.url();
+      const isLogged = !(url.includes("/auth") || url.includes("/login"));
+      if (isLogged) {
+        return { success: true };
+      }
       const loggedIn = await isPageLoggedIn(page);
       return {
         success: loggedIn,
@@ -1985,14 +1997,17 @@ async function loginViaUi(
   password: string,
 ): Promise<LoginAttemptResult> {
   try {
+    if (page.url().startsWith(qwenOrigin()) && !page.url().includes("/auth") && !page.url().includes("/login")) {
+      return { success: true };
+    }
     await page.goto(qwenUrl("/auth"), {
       waitUntil: "domcontentloaded",
       timeout: config.timeouts.navigation,
     });
-    await sleep(2000);
+    await sleep(1500);
 
     // Check if already logged in
-    if (!page.url().includes("/auth")) {
+    if (!page.url().includes("/auth") && !page.url().includes("/login")) {
       return { success: true };
     }
 
