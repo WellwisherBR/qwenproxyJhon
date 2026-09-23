@@ -172,7 +172,13 @@ app.use("*", async (c, next) => {
     c.req.path === "/logs" ||
     c.req.path.startsWith("/logs") ||
     c.req.path.startsWith("/diagnostics") ||
-    c.req.path === "/favicon.ico";
+    c.req.path === "/favicon.ico" ||
+    c.req.path === "/v1/models" ||
+    c.req.path.startsWith("/v1/models/") ||
+    c.req.path === "/models" ||
+    c.req.path.startsWith("/models/") ||
+    c.req.path === "/v1/chat/mode" ||
+    c.req.path === "/chat/mode";
 
   if (!isProbe) {
     metrics.increment("requests.total");
@@ -445,7 +451,13 @@ app.onError((err, c) => {
     c.req.path === "/health" ||
     c.req.path === "/metrics" ||
     c.req.path.startsWith("/diagnostics") ||
-    c.req.path === "/favicon.ico";
+    c.req.path === "/favicon.ico" ||
+    c.req.path === "/v1/models" ||
+    c.req.path.startsWith("/v1/models/") ||
+    c.req.path === "/models" ||
+    c.req.path.startsWith("/models/") ||
+    c.req.path === "/v1/chat/mode" ||
+    c.req.path === "/chat/mode";
   if (!isProbe) {
     metrics.increment("requests.errors");
   }
