@@ -364,7 +364,7 @@ export async function isPageLoggedIn(
           ) {
             return false;
           }
-          const user = json.data?.user || json.data;
+          const user = json.data?.user || json.data || json;
           if (!user || typeof user !== "object") return false;
           if (user.is_guest === true || user.is_login === false) return false;
           const hasIdentity = Boolean(
@@ -374,6 +374,7 @@ export async function isPageLoggedIn(
               user.email ||
               user.name ||
               json.data?.token ||
+              json.token ||
               user.token,
           );
           if (!hasIdentity) return false;
@@ -1498,6 +1499,7 @@ export async function initPlaywrightForAccount(
             waitUntil: "domcontentloaded",
             timeout: config.timeouts.navigation,
           });
+          await sleep(2000);
           const loggedIn = await isPageLoggedIn(acctPage);
           if (!loggedIn) {
             if (account.email && account.password) {
@@ -1918,10 +1920,13 @@ async function loginViaApi(
 
     if (result.data) {
       if (result.data.success === true || result.token) {
-        await page.goto(qwenUrl("/"), {
-          waitUntil: "domcontentloaded",
-          timeout: config.timeouts.navigation,
-        });
+        await page
+          .goto(qwenUrl("/"), {
+            waitUntil: "domcontentloaded",
+            timeout: config.timeouts.navigation,
+          })
+          .catch(() => {});
+        await sleep(2000);
         const loggedIn = await isPageLoggedIn(page);
         if (loggedIn) {
           return { success: true };
@@ -1929,7 +1934,9 @@ async function loginViaApi(
       } else if (result.data.success === false) {
         const code = result.data?.data?.code || result.data?.code;
         const details =
-          result.data?.data?.details || result.data?.details || result.data?.message;
+          result.data?.data?.details ||
+          result.data?.details ||
+          result.data?.message;
         const classified = classifyQwenAuthError(code, details);
         return {
           success: false,
@@ -1940,10 +1947,13 @@ async function loginViaApi(
     }
 
     if (result.ok) {
-      await page.goto(qwenUrl("/"), {
-        waitUntil: "domcontentloaded",
-        timeout: config.timeouts.navigation,
-      });
+      await page
+        .goto(qwenUrl("/"), {
+          waitUntil: "domcontentloaded",
+          timeout: config.timeouts.navigation,
+        })
+        .catch(() => {});
+      await sleep(2000);
       const loggedIn = await isPageLoggedIn(page);
       return {
         success: loggedIn,
@@ -2724,6 +2734,7 @@ async function refreshHeadersInternal(
               SESSION_PROBE_NAVIGATION_TIMEOUT_MS,
             ),
           });
+          await sleep(2000);
           const url = page.url();
           const isAuthUrl = url.includes("auth") || url.includes("login");
           const isLoggedIn = isAuthUrl
