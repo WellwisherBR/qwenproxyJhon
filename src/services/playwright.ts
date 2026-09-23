@@ -1965,8 +1965,17 @@ async function loginViaApi(
       reason: result.error || `HTTP ${result.status || "desconhecido"} sem corpo JSON válido`,
     };
   } catch (err: any) {
-    console.warn(`⚠️  [Playwright] API login error: ${err?.message || err}`);
-    return { success: false, reason: err?.message || String(err) };
+    const errMsg = err?.message || String(err);
+    if (page && !page.isClosed()) {
+      try {
+        await sleep(1500);
+        if (!page.url().includes("/auth") && (await isPageLoggedIn(page, 3000))) {
+          return { success: true };
+        }
+      } catch {}
+    }
+    console.warn(`⚠️  [Playwright] API login error: ${errMsg}`);
+    return { success: false, reason: errMsg };
   }
 }
 
@@ -2021,6 +2030,9 @@ async function loginViaUi(
         timeout: 10_000,
       });
     } catch {
+      if (!page.url().includes("/auth") && (await isPageLoggedIn(page, 3000))) {
+        return { success: true };
+      }
       console.warn(
         `⚠️  [Playwright] Password input not found on ${page.url()}`,
       );
