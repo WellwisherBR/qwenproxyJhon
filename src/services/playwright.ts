@@ -1502,14 +1502,13 @@ export async function initPlaywrightForAccount(
           await sleep(1500);
           const currentUrl = acctPage.url();
           const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-          const loggedIn = !isAuthUrl && (await isPageLoggedIn(acctPage, 3000));
-          if (!loggedIn) {
+          if (isAuthUrl) {
             if (account.email && account.password) {
-              console.warn(
-                `⚠️  [Playwright] Session expired for ${maskEmail(account.email)}, re-authenticating...`,
+              console.log(
+                `[Playwright] Session expired for ${maskEmail(account.email)}, re-authenticating...`,
               );
               const ok = await loginToQwen(account.id, account.email, account.password);
-              if (!ok || acctPage.url().includes("/auth")) {
+              if (!ok || acctPage.url().includes("/auth") || acctPage.url().includes("/login")) {
                 validationError = new Error(
                   `Session expired for ${maskEmail(account.email)} and re-authentication failed`,
                 );
@@ -1695,14 +1694,22 @@ export async function validateAccountLogin(
             waitUntil: "domcontentloaded",
             timeout: config.timeouts.navigation,
           });
-          loggedIn = await isPageLoggedIn(acctPage);
-          if (!loggedIn && account.email && account.password) {
-            accountPages.set(account.id, acctPage);
-            try {
-              loggedIn = await loginToQwen(account.id, account.email, account.password);
-            } finally {
-              accountPages.delete(account.id);
+          await sleep(1500);
+          const currentUrl = acctPage.url();
+          const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
+          if (isAuthUrl) {
+            if (account.email && account.password) {
+              accountPages.set(account.id, acctPage);
+              try {
+                loggedIn = await loginToQwen(account.id, account.email, account.password);
+              } finally {
+                accountPages.delete(account.id);
+              }
+            } else {
+              loggedIn = false;
             }
+          } else {
+            loggedIn = true;
           }
         } catch {
           loggedIn = false;
