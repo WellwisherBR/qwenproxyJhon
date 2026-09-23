@@ -316,11 +316,24 @@ export function addAccount(
   return newAccount;
 }
 
-function wipeAccountSessionFiles(id: string): void {
+export function wipeAccountSessionFiles(id: string): void {
   const profilePath = getAccountProfilePath(id);
   try {
     fs.rmSync(profilePath, { recursive: true, force: true });
-  } catch {}
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error ?? "");
+    if (
+      message.includes("EPERM") ||
+      message.includes("EBUSY") ||
+      message.includes("Permission denied")
+    ) {
+      try {
+        const stalePath = `${profilePath}.stale-${Date.now()}`;
+        fs.renameSync(profilePath, stalePath);
+      } catch {}
+    }
+  }
   const siblingState = path.join(getProfilesDir(), `${id}_state.json`);
   try {
     fs.rmSync(siblingState, { force: true });

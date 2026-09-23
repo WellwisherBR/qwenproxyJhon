@@ -81,6 +81,7 @@ import { qwenOrigin, qwenUrl } from "./qwen-url.ts";
 import { setWafContextResetListener } from "../core/waf-isolation.ts";
 import { updateQwenWebVersion, getQwenWebVersion } from "./qwen-headers.ts";
 import { getAccountProfilePath, getProfilesDir } from "../core/paths.ts";
+import { parseJwtExpiry, isTokenExpiringSoon } from "../utils/jwt.ts";
 
 type ContextInitHook = (context: BrowserContext) => Promise<void> | void;
 const contextInitHooks: ContextInitHook[] = [];
@@ -350,7 +351,42 @@ export async function isPageLoggedIn(
       .evaluate(async () => {
         try {
           const res = await fetch("/api/v1/auths/", { method: "GET" });
-          return res.status === 200;
+          if (res.status !== 200) return false;
+          const json: any = await res.json().catch(() => null);
+          if (!json) return false;
+          if (json.success === false) return false;
+          if (
+            json.code &&
+            json.code !== 200 &&
+            json.code !== "200" &&
+            json.code !== 0 &&
+            json.code !== "0"
+          ) {
+            return false;
+          }
+          const user = json.data?.user || json.data;
+          if (!user || typeof user !== "object") return false;
+          if (user.is_guest === true || user.is_login === false) return false;
+          const hasIdentity = Boolean(
+            user.id ||
+              user.user_id ||
+              user.userId ||
+              user.email ||
+              user.name ||
+              json.data?.token ||
+              user.token,
+          );
+          if (!hasIdentity) return false;
+
+          // DOM check: if login button is prominently visible, not logged in
+          const loginBtn = document.querySelector(
+            ".header-right-auth-button, button.header-right-auth-button, a[href*='/auth'], a[href*='/login']",
+          );
+          if (loginBtn && (loginBtn as HTMLElement).offsetParent !== null) {
+            return false;
+          }
+
+          return true;
         } catch {
           return false;
         }
@@ -1062,16 +1098,22 @@ export async function getCookies(accountId: string): Promise<string> {
   }
 
   const page = accountPages.get(accountId);
-  if (!page) return "";
+  if (!page || typeof page.context !== "function") return "";
 
-  const cookies = await withTimeout(
-    page.context().cookies(),
-    config.timeouts.page,
-    `Cookie retrieval timed out for ${accountId}`,
-  );
-  const cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-  cookieCaches.set(accountId, { cookie: cookieStr, timestamp: now });
-  return cookieStr;
+  try {
+    const context = page.context();
+    if (!context || typeof context.cookies !== "function") return "";
+    const cookies = await withTimeout(
+      context.cookies(),
+      config.timeouts.page,
+      `Cookie retrieval timed out for ${accountId}`,
+    );
+    const cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+    cookieCaches.set(accountId, { cookie: cookieStr, timestamp: now });
+    return cookieStr;
+  } catch {
+    return "";
+  }
 }
 
 export async function getBasicHeaders(accountId: string): Promise<{
@@ -2122,6 +2164,9 @@ export async function captureQwenHeaders(
             );
           }
         }
+        if (!headersCaptured) {
+          unmarkAccountHeadersReady(accountId);
+        }
         if (error) reject(error);
         else resolve();
       };
@@ -2230,7 +2275,10 @@ export async function captureQwenHeaders(
         // Ignore parse errors or missing postData
       }
 
-      if (!hasRequiredQwenHeaders(capturedHeaders)) {
+      if (
+        !hasRequiredQwenHeaders(capturedHeaders) ||
+        !hasValidAuthToken(capturedHeaders.cookie)
+      ) {
         // Not evidence the page is broken: the SDK also fires completions
         // before it has computed its token. The request still must never reach
         // Qwen, but the capture keeps its route and spends another send —
@@ -2551,24 +2599,62 @@ async function getCookieSnapshot(
 }
 
 /**
+ * Check whether a raw cookie header string contains a valid, non-empty auth token.
+ */
+export function hasValidAuthToken(cookieHeader?: string): boolean {
+  if (!cookieHeader || typeof cookieHeader !== "string") return false;
+  const match = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
+  if (!match || !match[1]) return false;
+  const value = match[1].trim();
+  if (
+    value === "" ||
+    value === '""' ||
+    value === "''" ||
+    value === "null" ||
+    value === "undefined"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Check if the auth token cookie is still valid.
  * Used to skip unnecessary header recaptures when the token is still fresh.
+ * Inspects the JWT exp claim when present rather than relying on cookie Max-Age.
  * Returns true if the token cookie exists and is not expired.
  */
-function isAuthTokenValidFrom(cookies: CookieSnapshot): boolean {
+export function isAuthTokenValidFrom(
+  cookies: CookieSnapshot,
+  safetyMarginMs = 5 * 60 * 1000,
+): boolean {
   const tokenCookie = cookies.find(
     (c) =>
       c.name === "token" && (c.domain === ".qwen.ai" || c.domain === "qwen.ai"),
   );
 
-  if (!tokenCookie) return false;
+  if (
+    !tokenCookie ||
+    !tokenCookie.value ||
+    tokenCookie.value.trim() === "" ||
+    tokenCookie.value.trim() === '""'
+  ) {
+    return false;
+  }
+
+  // If the token is a JWT, check its exp claim rather than the 1-year cookie Max-Age
+  const jwtExpSec = parseJwtExpiry(tokenCookie.value);
+  if (typeof jwtExpSec === "number" && Number.isFinite(jwtExpSec)) {
+    const expMs = jwtExpSec * 1000;
+    return expMs > Date.now() + safetyMarginMs;
+  }
 
   // Session cookie (expires = -1) is valid as long as browser is open
   if (tokenCookie.expires === -1) return true;
 
-  // Check if expired (with 5-min safety margin)
+  // Opaque token fallback: check cookie expiration with safety margin
   const expiresAt = tokenCookie.expires * 1000;
-  return expiresAt > Date.now() + 5 * 60 * 1000;
+  return expiresAt > Date.now() + safetyMarginMs;
 }
 
 /**
@@ -2591,6 +2677,7 @@ function isShortestCookieValidFrom(cookies: CookieSnapshot): boolean {
 async function refreshHeadersInternal(
   accountId: string,
   timeoutMs = config.timeouts.headers,
+  forceReauth = false,
 ): Promise<void> {
   const cache = getHeaderCache(accountId);
   if (cache.refreshInProgress) return;
@@ -2602,41 +2689,56 @@ async function refreshHeadersInternal(
     // Check if session is expired before capturing headers
     const page = accountPages.get(accountId);
     if (page) {
-      try {
-        await page.goto(qwenUrl("/"), {
-          waitUntil: "domcontentloaded",
-          timeout: Math.min(
-            config.timeouts.navigation,
-            boundedTimeoutMs,
-            SESSION_PROBE_NAVIGATION_TIMEOUT_MS,
-          ),
-        });
-        const url = page.url();
-        const isAuthUrl = url.includes("auth") || url.includes("login");
-        const isLoggedIn = isAuthUrl ? false : await isPageLoggedIn(page, 5_000);
-        if (isAuthUrl || !isLoggedIn) {
-          console.warn(
-            `⚠️  [Playwright] Session expired during refresh for ${accountId}, re-authenticating...`,
-          );
-          const { getAccountCredentials } = await import("../core/accounts.ts");
-          const creds = getAccountCredentials(accountId);
-          if (creds && creds.email && creds.password) {
-            await loginToQwen(accountId, creds.email, creds.password);
-            cookieCaches.delete(accountId);
-            if (!(await isPageLoggedIn(page, 5_000))) {
-              throw new Error(`Re-login for ${accountId} did not restore an authenticated session`);
-            }
-          } else {
-            console.warn(
-              `[Playwright] No credentials available for re-login of ${accountId}`,
+      const executeReauth = async () => {
+        console.warn(
+          `⚠️  [Playwright] Session expired or forced re-auth for ${accountId}, re-authenticating...`,
+        );
+        const { getAccountCredentials } = await import("../core/accounts.ts");
+        const creds = getAccountCredentials(accountId);
+        if (creds && creds.email && creds.password) {
+          const ok = await loginToQwen(accountId, creds.email, creds.password);
+          cookieCaches.delete(accountId);
+          if (!ok || !(await isPageLoggedIn(page, 5_000))) {
+            unmarkAccountHeadersReady(accountId);
+            throw new Error(
+              `Re-login for ${accountId} did not restore an authenticated session`,
             );
           }
+        } else {
+          unmarkAccountHeadersReady(accountId);
+          throw new Error(
+            `No credentials available for re-login of ${accountId}`,
+          );
         }
-      } catch (navErr) {
-        console.warn(
-          `[Playwright] Navigation check failed during refresh for ${accountId}:`,
-          (navErr as Error).message,
-        );
+      };
+
+      if (forceReauth) {
+        await executeReauth();
+      } else {
+        try {
+          await page.goto(qwenUrl("/"), {
+            waitUntil: "domcontentloaded",
+            timeout: Math.min(
+              config.timeouts.navigation,
+              boundedTimeoutMs,
+              SESSION_PROBE_NAVIGATION_TIMEOUT_MS,
+            ),
+          });
+          const url = page.url();
+          const isAuthUrl = url.includes("auth") || url.includes("login");
+          const isLoggedIn = isAuthUrl
+            ? false
+            : await isPageLoggedIn(page, 5_000);
+          if (isAuthUrl || !isLoggedIn) {
+            await executeReauth();
+          }
+        } catch (navErr) {
+          console.warn(
+            `[Playwright] Navigation check failed during refresh for ${accountId}:`,
+            (navErr as Error).message,
+          );
+          await executeReauth();
+        }
       }
     }
 
@@ -2666,6 +2768,7 @@ async function refreshHeadersInternal(
 export async function refreshHeaders(
   accountId: string,
   timeoutMs = config.timeouts.headers,
+  forceReauth = false,
 ): Promise<void> {
   const boundedTimeoutMs = Math.max(1_000, timeoutMs);
   const release = await acquireAccountMutex(
@@ -2674,7 +2777,7 @@ export async function refreshHeaders(
     boundedTimeoutMs,
   );
   try {
-    await refreshHeadersInternal(accountId, timeoutMs);
+    await refreshHeadersInternal(accountId, timeoutMs, forceReauth);
   } finally {
     release();
   }
@@ -3172,6 +3275,25 @@ export async function keepAlivePlaywrightAccount(
 
     const now = Date.now();
     const currentUrl = page.url();
+
+    // Proactive session check: if token expires within 45 minutes, refresh proactively
+    const cookie = await getCookies(accountId);
+    if (cookie && isTokenExpiringSoon(cookie, 45)) {
+      console.log(
+        `💓 [SessionKeeper] Account ${accountId} token expires within 45m; proactively renewing session...`,
+      );
+      try {
+        await refreshHeadersInternal(accountId, config.timeouts.headers, true);
+        lastKeepAliveNavigation.set(accountId, now);
+        touchAccountActivity(accountId);
+        return true;
+      } catch (err) {
+        console.warn(
+          `[SessionKeeper] Proactive session renewal failed for ${accountId}: ${getErrorMessage(err)}`,
+        );
+      }
+    }
+
     const lastNavigation = lastKeepAliveNavigation.get(accountId) ?? 0;
     const shouldNavigate =
       !currentUrl.startsWith(qwenOrigin()) ||
