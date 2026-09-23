@@ -2009,32 +2009,35 @@ async function loginViaUi(
 
     // Fill email
     await page.fill(emailSelector, email);
+    await sleep(300);
 
-    // The password field may already be visible (single-step form) or only
-    // appear after submitting the email (two-step flow).
+    // In Qwen Web, the password field is present on the same form.
+    // NEVER press Enter after filling email alone, as Qwen interprets that
+    // as a request to sign in via email verification code (passwordless OTP).
     const passwordSelector =
       'input[type="password"], input[name="password"]';
-    const passwordAlreadyVisible = await page
-      .locator(passwordSelector)
-      .first()
-      .isVisible()
-      .catch(() => false);
-
-    if (!passwordAlreadyVisible) {
-      await page.keyboard.press("Enter");
+    try {
       await page.waitForSelector(passwordSelector, {
-        timeout: config.timeouts.page,
+        timeout: 10_000,
       });
+    } catch {
+      console.warn(
+        `⚠️  [Playwright] Password input not found on ${page.url()}`,
+      );
+      return {
+        success: false,
+        reason: "Campo de senha não encontrado na tela de autenticação",
+      };
     }
-    await sleep(500);
 
     // Fill password
     await page.fill(passwordSelector, password);
+    await sleep(500);
 
     // Prefer clicking the submit button; fall back to pressing Enter.
     // The button starts disabled and only enables once both fields are filled.
     const submitSelector =
-      'button[type="submit"].qwenchat-auth-pc-submit-button, button[type="submit"]';
+      'button[type="submit"].qwenchat-auth-pc-submit-button, button[type="submit"], button:has-text("Sign in")';
     const submitButton = page.locator(submitSelector).first();
     try {
       await page.waitForSelector('button[type="submit"]:not([disabled])', {
@@ -2052,6 +2055,18 @@ async function loginViaUi(
       maxAttempts: config.captcha.maxAttempts,
       retryDelayMs: config.captcha.retryDelayMs,
     }).catch(() => {});
+
+    // Check if an OTP code verification screen appeared (e.g. 2FA / email verification code)
+    const codeSelector =
+      'input[placeholder*="code" i], input[placeholder*="código" i], input[name*="code" i]';
+    const codeInput = page.locator(codeSelector).first();
+    if (await codeInput.isVisible().catch(() => false)) {
+      return {
+        success: false,
+        reason: "Conta requer código de verificação enviado por e-mail (2FA/OTP)",
+      };
+    }
+
     // Check for UI error elements in DOM (Ant Design errors, alerts, toasts)
     const errorSelector = [
       ".qwen-chat-v2-toast-text",
