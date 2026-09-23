@@ -2392,11 +2392,9 @@ export async function captureQwenHeaders(
       // burn every trigger attempt on a textarea that does not exist. Re-login
       // immediately when credentials are available; otherwise fail fast with a
       // clear diagnosis instead of 3 pointless grace timeouts.
-      const loggedIn = await isPageLoggedIn(
-        page,
-        Math.max(1_000, Math.min(remainingBudgetMs(), SESSION_PROBE_NAVIGATION_TIMEOUT_MS)),
-      );
-      if (!loggedIn) {
+      const currentUrl = page.url();
+      const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
+      if (isAuthUrl) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
         if (creds && creds.email && creds.password) {
@@ -2409,7 +2407,7 @@ export async function captureQwenHeaders(
             // the check below probes a live authenticated chat page.
             await openChatPage();
           }
-          if (!ok || !(await isPageLoggedIn(page))) {
+          if (!ok || page.url().includes("/auth") || page.url().includes("/login")) {
             settle(
               new Error(
                 `Header capture failed for ${accountId}: re-login after session expiry did not succeed`,
@@ -2788,10 +2786,7 @@ async function refreshHeadersInternal(
           await sleep(2000);
           const url = page.url();
           const isAuthUrl = url.includes("auth") || url.includes("login");
-          const isLoggedIn = isAuthUrl
-            ? false
-            : await isPageLoggedIn(page, 5_000);
-          if (isAuthUrl || !isLoggedIn) {
+          if (isAuthUrl) {
             await executeReauth();
           }
         } catch (navErr) {
