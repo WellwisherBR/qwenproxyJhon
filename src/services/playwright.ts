@@ -1502,13 +1502,14 @@ export async function initPlaywrightForAccount(
           await sleep(1500);
           const currentUrl = acctPage.url();
           const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-          if (isAuthUrl) {
+          const loggedIn = !isAuthUrl && (await isPageLoggedIn(acctPage, 4_000));
+          if (!loggedIn) {
             if (account.email && account.password) {
               console.log(
-                `[Playwright] Session expired for ${maskEmail(account.email)}, re-authenticating...`,
+                `[Playwright] Session expired or guest state detected for ${maskEmail(account.email)}, re-authenticating...`,
               );
               const ok = await loginToQwen(account.id, account.email, account.password);
-              if (!ok || acctPage.url().includes("/auth") || acctPage.url().includes("/login")) {
+              if (!ok || !(await isPageLoggedIn(acctPage, 4_000))) {
                 validationError = new Error(
                   `Session expired for ${maskEmail(account.email)} and re-authentication failed`,
                 );
@@ -2038,9 +2039,28 @@ async function loginViaUi(
       return { success: false, reason: "Campo de e-mail não encontrado (possível captcha)" };
     }
 
+    // In Qwen Web, if the page opens on the default email OTP panel, click "Log in with a password"
+    // to reveal the standard email + password form.
+    try {
+      const pwdModeBtn = page.getByText(/Log in with a password/i).first();
+      if (await pwdModeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await pwdModeBtn.click().catch(() => {});
+        await sleep(500);
+      }
+    } catch {}
+
     // Fill email
     await page.fill(emailSelector, email);
     await sleep(300);
+
+    // If "Log in with a password" button appeared after typing email, click it
+    try {
+      const pwdModeBtn = page.getByText(/Log in with a password/i).first();
+      if (await pwdModeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await pwdModeBtn.click().catch(() => {});
+        await sleep(500);
+      }
+    } catch {}
 
     // In Qwen Web, the password field is present on the same form.
     // NEVER press Enter after filling email alone, as Qwen interprets that
@@ -2071,7 +2091,7 @@ async function loginViaUi(
     // Prefer clicking the submit button; fall back to pressing Enter.
     // The button starts disabled and only enables once both fields are filled.
     const submitSelector =
-      'button[type="submit"].qwenchat-auth-pc-submit-button, button[type="submit"], button:has-text("Sign in")';
+      'button.qwenchat-auth-pc-submit-button, button[type="submit"], button:has-text("Log in"), button:has-text("Sign in")';
     const submitButton = page.locator(submitSelector).first();
     try {
       await page.waitForSelector('button[type="submit"]:not([disabled])', {
@@ -2388,18 +2408,19 @@ export async function captureQwenHeaders(
       if (settled || page.isClosed()) return;
 
       // Session-expiry fast path: if the page landed on the auth/login screen
-      // (redirection after a dead session), typing into the chat input would
-      // burn every trigger attempt on a textarea that does not exist. Re-login
+      // or in a logged-out guest state, typing into the chat input would
+      // burn every trigger attempt on a textarea that does not submit. Re-login
       // immediately when credentials are available; otherwise fail fast with a
       // clear diagnosis instead of 3 pointless grace timeouts.
       const currentUrl = page.url();
       const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-      if (isAuthUrl) {
+      const loggedIn = !isAuthUrl && (await isPageLoggedIn(page, 3000));
+      if (!loggedIn) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
         if (creds && creds.email && creds.password) {
           console.warn(
-            `⚠️  [Playwright] Session expired during header capture for ${accountId}; re-authenticating...`,
+            `⚠️  [Playwright] Session expired or guest state detected during header capture for ${accountId}; re-authenticating...`,
           );
           const ok = await loginToQwen(accountId, creds.email, creds.password);
           if (ok) {
@@ -2407,7 +2428,7 @@ export async function captureQwenHeaders(
             // the check below probes a live authenticated chat page.
             await openChatPage();
           }
-          if (!ok || page.url().includes("/auth") || page.url().includes("/login")) {
+          if (!ok || !(await isPageLoggedIn(page, 4000))) {
             settle(
               new Error(
                 `Header capture failed for ${accountId}: re-login after session expiry did not succeed`,
@@ -2470,12 +2491,26 @@ export async function captureQwenHeaders(
         try {
           await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
           if (settled || page.isClosed()) return;
-          await page.fill(inputSelector, "", { timeout: inputActionTimeoutMs });
-          if (settled || page.isClosed()) return;
-          await page.type(inputSelector, "a", {
-            delay: 100,
-            timeout: inputActionTimeoutMs,
-          });
+          await page.fill(inputSelector, "a", { timeout: inputActionTimeoutMs });
+          if (typeof page.evaluate === "function") {
+            await page.evaluate((sel) => {
+              const el = document.querySelector(sel) as HTMLTextAreaElement | null;
+              if (el) {
+                el.focus();
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                  window.HTMLTextAreaElement.prototype,
+                  "value",
+                )?.set;
+                if (nativeSetter) {
+                  nativeSetter.call(el, "a");
+                } else {
+                  el.value = "a";
+                }
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            }, inputSelector).catch(() => {});
+          }
           interactionSucceeded = true;
           break;
         } catch {
@@ -2505,6 +2540,9 @@ export async function captureQwenHeaders(
         ".message-input-right-button-send .send-button",
         ".chat-prompt-send-button",
         "button.send-button",
+        "button[aria-label*='Send' i]",
+        "button[aria-label*='Enviar' i]",
+        ".send-button-container button",
       ];
 
       let clicked = false;
@@ -2513,18 +2551,28 @@ export async function captureQwenHeaders(
         try {
           const btn = await page.$(selector);
           if (btn && (await btn.isVisible())) {
-            await page.evaluate((sel) => {
-              const element = document.querySelector(sel) as HTMLElement;
-              if (element) {
-                element.focus();
-                element.click();
+            const isDisabled = await page.evaluate((el) => {
+              const b = el as HTMLButtonElement;
+              return (
+                b.disabled ||
+                b.classList.contains("disabled") ||
+                b.getAttribute("aria-disabled") === "true"
+              );
+            }, btn);
+            if (!isDisabled) {
+              await page.evaluate((sel) => {
+                const element = document.querySelector(sel) as HTMLElement;
+                if (element) {
+                  element.focus();
+                  element.click();
+                }
+              }, selector);
+              if (!settled && !page.isClosed()) {
+                await btn.click({ force: true, delay: 50 }).catch(() => {});
               }
-            }, selector);
-            if (!settled && !page.isClosed()) {
-              await btn.click({ force: true, delay: 50 }).catch(() => {});
+              clicked = true;
+              break;
             }
-            clicked = true;
-            break;
           }
         } catch {
           // Try the next selector.
