@@ -2529,6 +2529,16 @@ export async function captureQwenHeaders(
           await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
           if (settled || page.isClosed()) return;
           await page.fill(inputSelector, "a", { timeout: inputActionTimeoutMs });
+          // Dispatch native React input events and keyboard stroke to guarantee React updates state
+          if (typeof page.keyboard?.press === "function") {
+            await page.keyboard.press("End").catch(() => {});
+          }
+          if (typeof (page.keyboard as any)?.type === "function") {
+            await (page.keyboard as any).type(" ").catch(() => {});
+          }
+          if (typeof page.keyboard?.press === "function") {
+            await page.keyboard.press("Backspace").catch(() => {});
+          }
           if (typeof page.evaluate === "function") {
             await page.evaluate((sel) => {
               const el = document.querySelector(sel) as HTMLTextAreaElement | null;
@@ -2570,7 +2580,18 @@ export async function captureQwenHeaders(
         return;
       }
       if (settled || page.isClosed()) return;
-      await sleep(2000);
+
+      // Wait up to 3s for React to enable the send button after typing
+      try {
+        await page.waitForFunction(() => {
+          const btn = document.querySelector(
+            ".message-input-right-button-send .send-button, .chat-prompt-send-button, button.send-button, button[aria-label*='Send' i], button[aria-label*='Enviar' i], .send-button-container button"
+          ) as HTMLButtonElement | null;
+          return btn && !btn.disabled && !btn.classList.contains("disabled") && btn.getAttribute("aria-disabled") !== "true";
+        }, { timeout: 3000 });
+      } catch {
+        await sleep(1000);
+      }
       if (settled || page.isClosed()) return;
 
       const sendSelectors = [
