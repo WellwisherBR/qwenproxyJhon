@@ -510,7 +510,7 @@ const HEADER_CAPTURE_TRIGGER_GRACE_MS = 15_000;
  * send. Fail it fast and let the retry loop reload + re-send against the warm
  * SDK instead of stalling the boot for the full 15s.
  */
-const FIRST_TRIGGER_GRACE_MS = 3_000;
+const FIRST_TRIGGER_GRACE_MS = 8_000;
 /**
  * Sends (the initial one plus re-triggers) header capture may spend on getting a
  * completion request that actually carries the bx headers. The in-page SDK can
@@ -1535,6 +1535,7 @@ export async function initPlaywrightForAccount(
         throw validationError;
       }
       if (!options.skipHeaderCapture) {
+        (acctPage as any).__qwenChatHomeLoaded = true;
         await captureQwenHeaders(account.id);
       }
 
@@ -1961,14 +1962,45 @@ async function loginViaApi(
     }
 
     if (signinSuccess) {
+      const token = data?.data?.token || data?.token;
+      if (token) {
+        try {
+          await page.context().addCookies([
+            {
+              name: "token",
+              value: token,
+              domain: ".qwen.ai",
+              path: "/",
+              expires: Math.floor(Date.now() / 1000) + 31536000,
+              httpOnly: false,
+              secure: true,
+              sameSite: "Lax",
+            },
+          ]);
+        } catch {}
+      }
+
       await page
         .goto(qwenUrl("/"), {
           waitUntil: "domcontentloaded",
           timeout: config.timeouts.navigation,
         })
         .catch(() => {});
+
+      if (token) {
+        await page
+          .evaluate((tok) => {
+            try {
+              localStorage.setItem("token", tok);
+              document.cookie = `token=${encodeURIComponent(tok)}; path=/; domain=.qwen.ai; max-age=31536000`;
+            } catch {}
+          }, token)
+          .catch(() => {});
+        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+      }
+
       await sleep(1500);
-      const loggedIn = await isPageLoggedIn(page, 4_000);
+      const loggedIn = await isPageLoggedIn(page, 5_000);
       if (loggedIn) {
         return { success: true };
       }
@@ -2385,8 +2417,13 @@ export async function captureQwenHeaders(
     // Navigate to the stable chat page. Only the first attempt pays for this:
     // a re-trigger types into the page that is already loaded, and reloading
     // would throw away the bx SDK state that just finished warming up.
-    const openChatPage = async () => {
+    const openChatPage = async (forceReload = false) => {
       if (settled || page.isClosed()) return;
+      if (!forceReload && (page as any).__qwenChatHomeLoaded) {
+        delete (page as any).__qwenChatHomeLoaded;
+        await sleep(500);
+        return;
+      }
       await page.goto(qwenUrl("/"), {
         waitUntil: "domcontentloaded",
         timeout: Math.min(config.timeouts.navigation, timeoutMs),
@@ -2401,28 +2438,33 @@ export async function captureQwenHeaders(
       await clearVisibleChallenge(page);
       if (settled || page.isClosed()) return;
 
-      // Session-expiry fast path: if the page landed on the auth/login screen
-      // or in a logged-out guest state, typing into the chat input would
-      // burn every trigger attempt on a textarea that does not submit. Re-login
-      // immediately when credentials are available; otherwise fail fast with a
-      // clear diagnosis instead of 3 pointless grace timeouts.
+      // Session-expiry check: if the page redirected to /auth or /login,
+      // re-login immediately.
+      // On attempts 1 and 2, do NOT run a tight 3s fetch probe because the session
+      // was already verified during init. Only run isPageLoggedIn if attempt >= 3
+      // (as a last-resort recovery before giving up) and with a generous 8s timeout.
       const currentUrl = page.url();
       const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-      const loggedIn = !isAuthUrl && (await isPageLoggedIn(page, 3000));
-      if (!loggedIn) {
+      const isSuspectedGuest = attempt >= 3 && !(await isPageLoggedIn(page, 8000));
+      if (isAuthUrl || isSuspectedGuest) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
         if (creds && creds.email && creds.password) {
           console.warn(
             `⚠️  [Playwright] Session expired or guest state detected during header capture for ${accountId}; re-authenticating...`,
           );
+          armOverallDeadline();
           const ok = await loginToQwen(accountId, creds.email, creds.password);
           if (ok) {
             // Re-login navigated; load the chat page and wait for hydration so
             // the check below probes a live authenticated chat page.
-            await openChatPage();
+            await page.goto(qwenUrl("/"), {
+              waitUntil: "domcontentloaded",
+              timeout: Math.min(config.timeouts.navigation, timeoutMs),
+            });
+            await sleep(2000);
           }
-          if (!ok || !(await isPageLoggedIn(page, 4000))) {
+          if (!ok || !(await isPageLoggedIn(page, 6000))) {
             settle(
               new Error(
                 `Header capture failed for ${accountId}: re-login after session expiry did not succeed`,
@@ -2430,6 +2472,7 @@ export async function captureQwenHeaders(
             );
             return;
           }
+          armOverallDeadline();
           if (settled || page.isClosed()) return;
         } else {
           settle(
@@ -2609,14 +2652,13 @@ export async function captureQwenHeaders(
           // A missing chat input is the exception: the page never rendered the
           // chat UI, so there is no warm SDK state to protect and only a fresh
           // load can recover it.
-          if (
-            attempt === 1 ||
+          const needReload =
             lastAttemptInputMissing ||
-            (lastAttemptGraceTimedOut && attempt >= 3)
-          ) {
+            (lastAttemptGraceTimedOut && attempt >= 3);
+          if (attempt === 1 || needReload) {
             lastAttemptGraceTimedOut = false;
             lastAttemptInputMissing = false;
-            await openChatPage();
+            await openChatPage(needReload);
           }
           if (settled) return;
           await triggerSend(attempt);
