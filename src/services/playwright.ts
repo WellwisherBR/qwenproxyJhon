@@ -1889,94 +1889,94 @@ async function loginViaApi(
       .digest("hex");
     const signinUrl = qwenUrl("/api/v2/auths/signin");
 
-    const requestId = crypto.randomUUID();
-    const result = await page.evaluate(
-      async ({ email, password, signinUrl, requestId }) => {
-        try {
-          const response = await fetch(signinUrl, {
-            method: "POST",
-            signal: AbortSignal.timeout(10_000),
-            credentials: "include",
-            headers: {
-              accept: "application/json, text/plain, */*",
-              "content-type": "application/json",
-              source: "web",
-              timezone: new Date().toString().split(" (")[0],
-              "x-request-id": requestId,
-            },
-            body: JSON.stringify({ email, password, login_type: "email" }),
-          });
-          const data = await response.json().catch(() => null);
-          const token = data?.data?.token || data?.token;
-          if (token) {
-            try {
-              localStorage.setItem("token", token);
-              document.cookie = `token=${encodeURIComponent(token)}; path=/; domain=.qwen.ai; max-age=31536000`;
-            } catch {}
-          }
-          return { ok: response.ok, status: response.status, data, token };
-        } catch (e: any) {
-          return { ok: false, error: e.message };
-        }
-      },
-      { email, password: hashedPassword, signinUrl, requestId },
-    );
+    let signinSuccess = false;
+    let data: any = null;
 
-    if (result.data) {
-      if (result.data.success === true || result.token) {
-        await page
-          .goto(qwenUrl("/"), {
-            waitUntil: "domcontentloaded",
-            timeout: config.timeouts.navigation,
-          })
-          .catch(() => {});
-        await sleep(1000);
-        const url = page.url();
-        const isLogged = !(url.includes("/auth") || url.includes("/login"));
-        if (isLogged) {
-          return { success: true };
-        }
-        const loggedIn = await isPageLoggedIn(page);
-        if (loggedIn) {
-          return { success: true };
-        }
-      } else if (result.data.success === false) {
-        const code = result.data?.data?.code || result.data?.code;
-        const details =
-          result.data?.data?.details ||
-          result.data?.details ||
-          result.data?.message;
-        const classified = classifyQwenAuthError(code, details);
-        return {
-          success: false,
-          permanentFailure: classified.isPermanent,
-          reason: classified.reason,
-        };
+    if (page.request && typeof page.request.post === "function") {
+      try {
+        const response = await page.request.post(signinUrl, {
+          data: {
+            email,
+            password: hashedPassword,
+            login_type: "email",
+          },
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/plain, */*",
+            referer: qwenUrl("/auth"),
+            origin: qwenOrigin(),
+          },
+          timeout: 10_000,
+        });
+        data = await response.json().catch(() => null);
+        signinSuccess = Boolean(data && (data.success === true || data.token));
+      } catch {}
+    }
+
+    if (!signinSuccess && !data) {
+      // Fallback to in-page evaluate fetch if page.request was unavailable
+      const requestId = crypto.randomUUID();
+      const evalRes = await page
+        .evaluate(
+          async ({ email, password, signinUrl, requestId }) => {
+            try {
+              const response = await fetch(signinUrl, {
+                method: "POST",
+                signal: AbortSignal.timeout(10_000),
+                credentials: "include",
+                headers: {
+                  accept: "application/json, text/plain, */*",
+                  "content-type": "application/json",
+                  source: "web",
+                  timezone: new Date().toString().split(" (")[0],
+                  "x-request-id": requestId,
+                },
+                body: JSON.stringify({ email, password, login_type: "email" }),
+              });
+              const json = await response.json().catch(() => null);
+              return { ok: response.ok, status: response.status, data: json };
+            } catch (e: any) {
+              return { ok: false, error: e.message };
+            }
+          },
+          { email, password: hashedPassword, signinUrl, requestId },
+        )
+        .catch(() => null);
+
+      if (evalRes?.data) {
+        data = evalRes.data;
+        signinSuccess = Boolean(data && (data.success === true || data.token));
       }
     }
 
-    if (result.ok) {
+    if (data?.success === false) {
+      const code = data?.data?.code || data?.code;
+      const details = data?.data?.details || data?.details || data?.message;
+      const classified = classifyQwenAuthError(code, details);
+      return {
+        success: false,
+        permanentFailure: classified.isPermanent,
+        reason: classified.reason,
+      };
+    }
+
+    if (signinSuccess) {
       await page
         .goto(qwenUrl("/"), {
           waitUntil: "domcontentloaded",
           timeout: config.timeouts.navigation,
         })
         .catch(() => {});
-      await sleep(1000);
-      const url = page.url();
-      const isLogged = !(url.includes("/auth") || url.includes("/login"));
-      if (isLogged) {
+      await sleep(1500);
+      const loggedIn = await isPageLoggedIn(page, 4_000);
+      if (loggedIn) {
         return { success: true };
       }
-      const loggedIn = await isPageLoggedIn(page);
-      return {
-        success: loggedIn,
-        reason: loggedIn ? undefined : "Sessão não autenticada após signin",
-      };
     }
+
     return {
       success: false,
-      reason: result.error || `HTTP ${result.status || "desconhecido"} sem corpo JSON válido`,
+      reason: "API signin não confirmou sessão autenticada",
     };
   } catch (err: any) {
     const errMsg = err?.message || String(err);
