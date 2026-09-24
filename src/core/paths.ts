@@ -181,6 +181,9 @@ export function getTuiSettingsPath(customDataDir?: string): string {
  * Path to user configuration .env file (either local or in global data dir).
  */
 export function getEnvFilePath(customDataDir?: string): string {
+  if (isRunningUnderNodeTest()) {
+    return path.join(customDataDir || getDataDir(), ".env");
+  }
   const localEnv = path.resolve(".env");
   if (fs.existsSync(localEnv)) {
     return localEnv;

@@ -282,8 +282,14 @@ export class ServerManager {
     }
     this.restoreLogs();
     try {
+      await stopServer();
       this.state = "offline";
     } catch {}
+  }
+
+  public async restart(): Promise<void> {
+    await this.stop();
+    await this.ensureStarted();
   }
 
   public startRemoteLogStream(host: string, port: number): void {
