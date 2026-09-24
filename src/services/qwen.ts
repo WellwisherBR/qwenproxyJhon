@@ -985,12 +985,12 @@ export async function requestQwenSettingsDirectFetch(
     // passes the WAF.
     let json: any = null;
     let okShape = false;
-    if (contentType.includes("html")) {
+    if (contentType.includes("html") || !response.ok) {
       okShape = false;
     } else {
       try {
         json = JSON.parse(raw);
-        okShape = json && typeof json === "object" && "success" in json;
+        okShape = json && typeof json === "object" && json.success === true;
       } catch {
         okShape = false;
       }
