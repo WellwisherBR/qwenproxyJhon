@@ -2496,17 +2496,15 @@ export async function captureQwenHeaders(
       // Unbounded, page.focus would burn its 60s default timeout on every
       // attempt, freezing the whole capture and cooling a healthy account with
       // AuthInitFailed. A miss marks the attempt for a reload instead.
+      const inputLocator = page.locator(inputSelector).first();
       try {
-        await page
-          .locator(inputSelector)
-          .first()
-          .waitFor({
-            state: "visible",
-            timeout: Math.max(
-              1,
-              Math.min(CHAT_INPUT_APPEAR_TIMEOUT_MS, remainingBudgetMs()),
-            ),
-          });
+        await inputLocator.waitFor({
+          state: "visible",
+          timeout: Math.max(
+            1,
+            Math.min(CHAT_INPUT_APPEAR_TIMEOUT_MS, remainingBudgetMs()),
+          ),
+        });
       } catch {
         if (settled || page.isClosed()) return;
         console.warn(
@@ -2526,9 +2524,17 @@ export async function captureQwenHeaders(
       for (let interactionTry = 1; interactionTry <= 2; interactionTry++) {
         if (settled || page.isClosed()) return;
         try {
-          await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
+          if (typeof (inputLocator as any).focus === "function") {
+            await (inputLocator as any).focus({ timeout: inputActionTimeoutMs });
+          } else {
+            await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
+          }
           if (settled || page.isClosed()) return;
-          await page.fill(inputSelector, "a", { timeout: inputActionTimeoutMs });
+          if (typeof (inputLocator as any).fill === "function") {
+            await (inputLocator as any).fill("a", { timeout: inputActionTimeoutMs });
+          } else {
+            await page.fill(inputSelector, "a", { timeout: inputActionTimeoutMs });
+          }
           // Dispatch native React input events and keyboard stroke to guarantee React updates state
           if (typeof page.keyboard?.press === "function") {
             await page.keyboard.press("End").catch(() => {});
