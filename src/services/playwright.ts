@@ -2490,7 +2490,7 @@ export async function captureQwenHeaders(
       // picking a sibling textarea/contenteditable), then fall back to generic.
       // Mirrors upstream 5b3fd3e (robust account header capture).
       const inputSelector =
-        'textarea.message-input-textarea:visible, textarea:visible, [contenteditable="true"]:visible';
+        "textarea.message-input-textarea, textarea[placeholder*='Ask' i], textarea[placeholder*='Pergunte' i], textarea";
       // Bound the appearance wait: a page that never renders the chat input is
       // blocked (WAF interstitial, punish document, or failed SPA hydration).
       // Unbounded, page.focus would burn its 60s default timeout on every
@@ -2525,26 +2525,17 @@ export async function captureQwenHeaders(
         if (settled || page.isClosed()) return;
         try {
           if (typeof (inputLocator as any).focus === "function") {
-            await (inputLocator as any).focus({ timeout: inputActionTimeoutMs });
+            await (inputLocator as any).focus({ timeout: inputActionTimeoutMs }).catch(() => {});
           } else {
-            await page.focus(inputSelector, { timeout: inputActionTimeoutMs });
+            await page.focus(inputSelector, { timeout: inputActionTimeoutMs }).catch(() => {});
           }
           if (settled || page.isClosed()) return;
           if (typeof (inputLocator as any).fill === "function") {
-            await (inputLocator as any).fill("a", { timeout: inputActionTimeoutMs });
+            await (inputLocator as any).fill("a", { timeout: inputActionTimeoutMs }).catch(() => {});
           } else {
-            await page.fill(inputSelector, "a", { timeout: inputActionTimeoutMs });
+            await page.fill(inputSelector, "a", { timeout: inputActionTimeoutMs }).catch(() => {});
           }
-          // Dispatch native React input events and keyboard stroke to guarantee React updates state
-          if (typeof page.keyboard?.press === "function") {
-            await page.keyboard.press("End").catch(() => {});
-          }
-          if (typeof (page.keyboard as any)?.type === "function") {
-            await (page.keyboard as any).type(" ").catch(() => {});
-          }
-          if (typeof page.keyboard?.press === "function") {
-            await page.keyboard.press("Backspace").catch(() => {});
-          }
+
           if (typeof page.evaluate === "function") {
             await page.evaluate((sel) => {
               const el = document.querySelector(sel) as HTMLTextAreaElement | null;
@@ -2591,17 +2582,18 @@ export async function captureQwenHeaders(
       try {
         await page.waitForFunction(() => {
           const btn = document.querySelector(
-            ".message-input-right-button-send .send-button, .chat-prompt-send-button, button.send-button, button[aria-label*='Send' i], button[aria-label*='Enviar' i], .send-button-container button"
+            ".message-input-right-button-send .send-button, .message-input-right-button-send button, .chat-prompt-send-button, button.send-button, button[aria-label*='Send' i], button[aria-label*='Enviar' i], .send-button-container button"
           ) as HTMLButtonElement | null;
           return btn && !btn.disabled && !btn.classList.contains("disabled") && btn.getAttribute("aria-disabled") !== "true";
         }, { timeout: 3000 });
       } catch {
-        await sleep(1000);
+        await sleep(500);
       }
       if (settled || page.isClosed()) return;
 
       const sendSelectors = [
         ".message-input-right-button-send .send-button",
+        ".message-input-right-button-send button",
         ".chat-prompt-send-button",
         "button.send-button",
         "button[aria-label*='Send' i]",
@@ -2624,16 +2616,7 @@ export async function captureQwenHeaders(
               );
             }, btn);
             if (!isDisabled) {
-              await page.evaluate((sel) => {
-                const element = document.querySelector(sel) as HTMLElement;
-                if (element) {
-                  element.focus();
-                  element.click();
-                }
-              }, selector);
-              if (!settled && !page.isClosed()) {
-                await btn.click({ force: true, delay: 50 }).catch(() => {});
-              }
+              await btn.click({ delay: 50 }).catch(() => {});
               clicked = true;
               break;
             }
