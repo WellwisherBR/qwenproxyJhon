@@ -18,7 +18,7 @@ import {
   setToolCapNotice,
 } from "../../services/qwen.ts";
 import { acquireUpstreamStream } from "./account.ts";
-import { markAccountRateLimited } from "../../core/account-manager.ts";
+import { markAccountRateLimited, computeQuotaCooldownMs } from "../../core/account-manager.ts";
 import {
   clearTemporaryBusy,
   markAccountTemporarilyBusy,
@@ -437,6 +437,20 @@ export async function processNonStreamingResponse(
               chunk.response_id === targetResponseId)
           ) {
             const delta = chunk.choices[0].delta;
+
+            if (delta.extra?.update_member || chunk.update_member) {
+              throw toRetryableStreamError(
+                "membership_limit",
+                "Qwen upstream membership limit reached (update_member); rotating account",
+                {
+                  switchAccount: true,
+                  forceNewChat: true,
+                  reason: "membership_limit",
+                  accountCooldownMs: computeQuotaCooldownMs(Date.now()),
+                  accountCooldownReason: "MembershipLimit",
+                },
+              );
+            }
 
             if (isThinkingPhase(delta.phase)) {
               isThinkingChunk = true;
@@ -1743,6 +1757,20 @@ export async function processStreamingResponse(
                 chunk.response_id === targetResponseId)
             ) {
               const delta = chunk.choices[0].delta;
+
+              if (delta.extra?.update_member || chunk.update_member) {
+                throw toRetryableStreamError(
+                  "membership_limit",
+                  "Qwen upstream membership limit reached (update_member); rotating account",
+                  {
+                    switchAccount: true,
+                    forceNewChat: true,
+                    reason: "membership_limit",
+                    accountCooldownMs: computeQuotaCooldownMs(Date.now()),
+                    accountCooldownReason: "MembershipLimit",
+                  },
+                );
+              }
 
               // Qwen streams may end with a {"status":"finished",
               // "phase":"answer"} delta and NO trailing [DONE]. Treat it as

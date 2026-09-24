@@ -942,3 +942,29 @@ test("StreamingToolParser: recovers edit_file with missing opening quote on prop
   assert.strictEqual(calls[0].name, "edit_file");
   assert.deepStrictEqual((calls[0].arguments as any).edits, [{ new_text: "new", old_text: "old" }]);
 });
+
+test("StreamingToolParser: parses <function=name><parameter=key>value</parameter></function> shorthand format", () => {
+  const parser = new StreamingToolParser(TOOLS);
+  const input =
+    "<function=read_file>\n<parameter=path>src/index.ts</parameter>\n</function>";
+  const res = parser.feed(input);
+  const flushed = parser.flush();
+  const calls = [...res.toolCalls, ...flushed.toolCalls];
+
+  assert.strictEqual(calls.length, 1, "function shorthand format should be parsed");
+  assert.strictEqual(calls[0].name, "read_file");
+  assert.deepStrictEqual(calls[0].arguments, { path: "src/index.ts" });
+});
+
+test("StreamingToolParser: parses function shorthand with named parameter tags", () => {
+  const parser = new StreamingToolParser(TOOLS);
+  const input =
+    '<function=read_file>\n<parameter name="path">src/app.ts</parameter>\n</function>';
+  const res = parser.feed(input);
+  const flushed = parser.flush();
+  const calls = [...res.toolCalls, ...flushed.toolCalls];
+
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].name, "read_file");
+  assert.deepStrictEqual(calls[0].arguments, { path: "src/app.ts" });
+});

@@ -242,6 +242,8 @@ export function isQuotaLikeError(err: unknown): boolean {
   return (
     code === "quota_limit" ||
     code === "ratelimited" ||
+    code === "membership_limit" ||
+    code === "membershiplimit" ||
     message.includes("quota_limit") ||
     message.includes("quota exceeded") ||
     message.includes("allocated quota") ||
@@ -253,11 +255,16 @@ export function isQuotaLikeError(err: unknown): boolean {
     message.includes("rate increased too quickly") ||
     message.includes("upper limit for today's usage") ||
     message.includes("you've reached the upper limit") ||
+    message.includes("membership_limit") ||
+    message.includes("membership limit") ||
+    message.includes("update_member") ||
+    message.includes("update member") ||
     // Accept local rate_limit code only when message also looks like quota/rate
     (code === "rate_limit_exceeded" &&
       (message.includes("quota") ||
         message.includes("rate") ||
         message.includes("limit") ||
+        message.includes("membership") ||
         message.includes("demanda") ||
         message.includes("demand")))
   );
