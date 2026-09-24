@@ -952,6 +952,11 @@ export async function processStreamingResponse(
 
       // Release the lease immediately. The stop request below is best-effort
       // and must never hold the account slot or block the next tool turn.
+      if (onStreamComplete) {
+        try {
+          onStreamComplete();
+        } catch {}
+      }
       retryContext.releaseAccountLease?.();
       retryContext.releaseAccountLease = null;
       removeStream(completionId);
@@ -2624,11 +2629,17 @@ export async function processStreamingResponse(
       }
 
       // Release locks now that the stream is fully done
-      if (onStreamComplete) onStreamComplete();
+      if (onStreamComplete) {
+        try {
+          onStreamComplete();
+        } catch {}
+      }
 
       // Release account lease from transparent retry if active
       if (retryContext.releaseAccountLease) {
-        retryContext.releaseAccountLease();
+        try {
+          retryContext.releaseAccountLease();
+        } catch {}
         retryContext.releaseAccountLease = null;
       }
     }
