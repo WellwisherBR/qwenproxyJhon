@@ -379,22 +379,6 @@ export async function isPageLoggedIn(
           );
           if (!hasIdentity) return false;
 
-          // Also verify auth.qwen.ai session state to ensure token was not revoked on backend
-          try {
-            const auth2Res = await fetch("https://auth.qwen.ai/api/v2/auths/", {
-              method: "GET",
-              credentials: "include",
-            });
-            if (auth2Res.status === 200) {
-              const auth2Json: any = await auth2Res.json().catch(() => null);
-              if (auth2Json && auth2Json.success === false) {
-                return false;
-              }
-            } else if (auth2Res.status === 401) {
-              return false;
-            }
-          } catch {}
-
           // If an authenticated user object is confirmed with a real user identity,
           // the session is 100% valid and verified by upstream.
           return true;
