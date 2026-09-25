@@ -356,16 +356,37 @@ async function getSTSToken(
       body: JSON.stringify({ filename, filesize: String(filesize), filetype }),
     });
 
-  let response = await doFetch(headers);
+  let data: any = null;
+  const { loadAccounts } = await import("../core/accounts.ts");
+  const resolvedId = accountId ?? loadAccounts()[0]?.id;
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(
-      `STS token request failed: ${response.status} ${errorText.substring(0, 200)}`,
-    );
+  if (!isAuthMockEnabled() && resolvedId) {
+    try {
+      const { requestQwenTextInBrowser, buildCapturedQwenHeaders } =
+        await import("../services/qwen.ts");
+      const browserRes = await requestQwenTextInBrowser(
+        resolvedId,
+        "POST",
+        "/api/v2/files/getstsToken",
+        buildCapturedQwenHeaders(headers, { referer: qwenUrl("/") }),
+        JSON.stringify({ filename, filesize: String(filesize), filetype }),
+      );
+      if (browserRes.ok) {
+        data = await browserRes.json().catch(() => null);
+      }
+    } catch {}
   }
 
-  let data = await response.json().catch(() => null);
+  if (!data?.success) {
+    const response = await doFetch(headers);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(
+        `STS token request failed: ${response.status} ${errorText.substring(0, 200)}`,
+      );
+    }
+    data = await response.json().catch(() => null);
+  }
   const is401 =
     data?.success === false &&
     (data?.data?.code === "Unauthorized" ||
@@ -389,9 +410,9 @@ async function getSTSToken(
         headers["bx-v"] = fresh.bxV;
         if (fresh.bxUa) headers["bx-ua"] = fresh.bxUa;
         if (fresh.bxUmidtoken) headers["bx-umidtoken"] = fresh.bxUmidtoken;
-        response = await doFetch(headers);
-        if (response.ok) {
-          data = await response.json().catch(() => null);
+        const retryRes = await doFetch(headers);
+        if (retryRes.ok) {
+          data = await retryRes.json().catch(() => null);
         }
       }
     } catch (refreshErr) {
