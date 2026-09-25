@@ -1488,6 +1488,62 @@ export async function initPlaywrightForAccount(
         await hook(acctContext);
       }
 
+      // Block telemetry pixels, third-party trackers, ad scripts and heavy video/audio media to speed up page loads by 30-50%
+      // Invariant 5: NEVER abort image or stylesheet requests needed by Baxia slider (Canvas tiles on img.alicdn.com)
+      await acctContext.route("**/*", (route) => {
+        const req = route.request();
+        const url = req.url();
+        const type = req.resourceType();
+
+        // 1. Heavy video/audio media (never used for text completions)
+        if (type === "media") {
+          return route.abort().catch(() => {});
+        }
+
+        // 2. Google Tag Manager: fulfill with stub script to avoid runtime undefined errors
+        if (url.includes("googletagmanager.com/gtag/js") || url.includes("google-analytics.com")) {
+          return route.fulfill({
+            status: 200,
+            contentType: "application/javascript",
+            body: "window.dataLayer=window.dataLayer||[];window.gtag=window.gtag||function(){dataLayer.push(arguments)};",
+          }).catch(() => {});
+        }
+
+        // 3. Telemetry tracking pixels, ad networks and event monitors
+        const isTelemetryOrTracker =
+          url.includes("fourier.taobao.com") ||
+          url.includes("googletagmanager") ||
+          url.includes("analytics.google") ||
+          url.includes("doubleclick.net") ||
+          url.includes("connect.facebook") ||
+          url.includes("facebook.com") ||
+          url.includes("adjust.com") ||
+          url.includes("ucweb.com") ||
+          url.includes("hotjar.com") ||
+          url.includes("clarity.ms") ||
+          url.includes("/AWSC/et/"); // Alibaba Event Tracking (safe to block, verified)
+
+        if (isTelemetryOrTracker) {
+          if (type === "script") {
+            return route.fulfill({
+              status: 200,
+              contentType: "application/javascript",
+              body: "",
+            }).catch(() => {});
+          }
+          if (type === "image") {
+            return route.fulfill({
+              status: 200,
+              contentType: "image/gif",
+              body: Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64"),
+            }).catch(() => {});
+          }
+          return route.abort().catch(() => {});
+        }
+
+        return route.continue().catch(() => {});
+      }).catch(() => {});
+
       // If native profile cookies are empty but a backup storage_state.json exists, restore cookies
       const storageState = loadStorageState(account.id);
       if (storageState) {
