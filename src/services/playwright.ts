@@ -383,10 +383,36 @@ export async function isPageLoggedIn(
           );
           if (!hasIdentity) return false;
 
-          // Check if Alibaba revoked the session upstream
+          // Check if Alibaba revoked the session upstream via same-origin settings
+          try {
+            const settingsRes = await fetch("/api/v2/users/user/settings", {
+              method: "GET",
+              credentials: "include",
+              signal: AbortSignal.timeout(3000),
+            });
+            if (settingsRes.status === 401 || settingsRes.status === 403) {
+              return false;
+            }
+            const settingsJson: any = await settingsRes.json().catch(() => null);
+            if (settingsJson && settingsJson.success === false) {
+              const code = String(settingsJson.data?.code || settingsJson.code || "").toLowerCase();
+              const details = String(settingsJson.data?.details || settingsJson.details || "").toLowerCase();
+              if (
+                code.includes("unauthorized") ||
+                details.includes("401") ||
+                details.includes("revogado") ||
+                details.includes("revoked")
+              ) {
+                return false;
+              }
+            }
+          } catch {}
+
+          // Fallback cross-origin refresh probe
           try {
             const refreshRes = await fetch("https://auth.qwen.ai/api/v2/auths/refresh", {
               method: "GET",
+              credentials: "include",
               signal: AbortSignal.timeout(3000),
             });
             if (refreshRes.status === 200) {
@@ -1721,7 +1747,7 @@ export async function initPlaywrightForAccount(
               cache.lastRefresh = persisted.capturedAt;
 
               // Verify that the restored session is actually live and authenticated
-              const isLiveLoggedIn = await isPageLoggedIn(acctPage, 3_000);
+              const isLiveLoggedIn = await isPageLoggedIn(acctPage, 5_000);
               if (isLiveLoggedIn) {
                 markAccountHeadersReady(account.id);
                 restoredFromDb = true;
