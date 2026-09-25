@@ -350,6 +350,18 @@ export async function isPageLoggedIn(
     const probe = page
       .evaluate(async () => {
         try {
+          // If DOM visibly shows login/auth buttons or logged-out marker, page is not logged in
+          const authBtn = document.querySelector(".header-right-auth-button, .auth-buttons");
+          if (authBtn) {
+            const style = window.getComputedStyle(authBtn);
+            if (style.display !== "none" && style.visibility !== "hidden") {
+              return false;
+            }
+          }
+          if (localStorage.getItem("qwen_token_logged_out_marker")) {
+            return false;
+          }
+
           const res = await fetch("/api/v1/auths/", { method: "GET" });
           if (res.status !== 200) return false;
           const json: any = await res.json().catch(() => null);
@@ -2665,10 +2677,16 @@ export async function captureQwenHeaders(
       // On attempts 1 and 2, do NOT run a tight 3s fetch probe because the session
       // was already verified during init. Only run isPageLoggedIn if attempt >= 3
       // (as a last-resort recovery before giving up) and with a generous 8s timeout.
-      const currentUrl = page.url();
+      const currentUrl = typeof page.url === "function" ? page.url() : "";
       const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-      const isSuspectedGuest = attempt >= 3 && !(await isPageLoggedIn(page, 8000));
-      if (isAuthUrl || isSuspectedGuest) {
+      const hasAuthButton = typeof page.evaluate === "function"
+        ? await page.evaluate(() => {
+            const btn = document.querySelector(".header-right-auth-button, .auth-buttons");
+            return Boolean(btn && window.getComputedStyle(btn).display !== "none");
+          }).catch(() => false)
+        : false;
+      const isSuspectedGuest = isAuthUrl || hasAuthButton || (attempt >= 3 && !(await isPageLoggedIn(page, 8000)));
+      if (isSuspectedGuest) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
         if (creds && creds.email && creds.password) {
