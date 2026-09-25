@@ -764,6 +764,12 @@ export async function startServer(options?: {
   }
 
   startPromise = (async () => {
+    const { getAppVersion } = await import("../core/version.ts");
+    const appVersion = getAppVersion();
+    if (options?.showBanner !== false) {
+      console.log(`🚀 [Server] Iniciando QwenProxy ${appVersion} na porta ${config.server.port}...`);
+    }
+
     cache = new MemoryCache();
     await cache.connect();
 
@@ -1029,7 +1035,7 @@ export async function startServer(options?: {
       console.log(`
 +${"-".repeat(W)}+
 |${blank()}|
-|${center("QwenProxy")}|
+|${center(`QwenProxy ${appVersion}`)}|
 |${center("OpenAI & Anthropic Compatible API")}|
 |${blank()}|
 +${"-".repeat(W)}+
