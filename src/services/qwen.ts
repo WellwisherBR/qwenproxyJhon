@@ -663,8 +663,18 @@ const QWEN_SAFE_SETTINGS_PATCH = {
     autoTags: false,
     largeTextAsFile: false,
     splitLargeChunks: false,
+    title: {
+      auto: false,
+    },
+    notificationEnabled: false,
   },
   mcp_remind: false,
+  mcp: {
+    "code-interpreter": false,
+    "fire-crawl": false,
+    amap: false,
+    "image-generation": false,
+  },
   memory: {
     enable_memory: false,
     enable_history_memory: false,
@@ -680,6 +690,10 @@ const QWEN_SAFE_SETTINGS_PATCH = {
     image_edit_tool: false,
     bio: false,
     image_zoom_in_tool: false,
+    image_search: false,
+  },
+  extension: {
+    show_guide: false,
   },
 } as const;
 
@@ -1574,6 +1588,7 @@ export async function syncQwenRequestPersonalization(
         existingJson?.data?.ui?.largeTextAsFile === false &&
         existingJson?.data?.ui?.splitLargeChunks === false &&
         existingJson?.data?.ui?.autoTags === false &&
+        existingJson?.data?.ui?.title?.auto === false &&
         existingJson?.data?.mcp_remind === false &&
         existingJson?.data?.memory?.enable_memory === false &&
         existingJson?.data?.memory?.enable_history_memory === false &&
