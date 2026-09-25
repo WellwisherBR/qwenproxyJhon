@@ -813,6 +813,7 @@ function getBrowserFetchHeaders(
   const browserAllowedHeaders = new Set([
     "accept",
     "content-type",
+    "authorization",
     "bx-ua",
     "bx-umidtoken",
     "bx-v",
@@ -1669,6 +1670,7 @@ export async function syncQwenRequestPersonalization(
       `[Qwen] Personalization 401 — refreshing session with re-auth and retrying | account=${cacheKey}`,
     );
     try {
+      currentSettings = null;
       const { headers: freshHeaders } = await getQwenHeaders(true, accountId, true);
       requestHeaders = buildCapturedQwenHeaders(freshHeaders, {
         referer: qwenUrl("/settings/personalization"),

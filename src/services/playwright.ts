@@ -1077,6 +1077,9 @@ async function tryLightweightCookieRefresh(
     );
     const cookieStr = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
     cookieCaches.set(accountId, { cookie: cookieStr, timestamp: Date.now() });
+    if (cache && cache.headers) {
+      cache.headers["cookie"] = cookieStr;
+    }
     return true;
   } catch {
     return false;
@@ -1085,11 +1088,13 @@ async function tryLightweightCookieRefresh(
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export async function getCookies(accountId: string): Promise<string> {
+export async function getCookies(accountId: string, forceFresh = false): Promise<string> {
   const now = Date.now();
-  const cached = cookieCaches.get(accountId);
-  if (cached && now - cached.timestamp < COOKIE_CACHE_TTL) {
-    return cached.cookie;
+  if (!forceFresh) {
+    const cached = cookieCaches.get(accountId);
+    if (cached && now - cached.timestamp < COOKIE_CACHE_TTL) {
+      return cached.cookie;
+    }
   }
 
   const page = accountPages.get(accountId);
@@ -1299,6 +1304,25 @@ export async function getBasicHeaders(accountId: string): Promise<{
             ...(persisted.version ? { version: persisted.version } : {}),
           };
           if (hasRequiredQwenHeaders(restoredHeaders) && hasValidAuthToken(restoredHeaders.cookie)) {
+            const page = accountPages.get(accountId);
+            if (page && !page.isClosed()) {
+              try {
+                const cookiesToAdd = parseCookiesForBrowser(restoredHeaders.cookie);
+                if (cookiesToAdd.length > 0) {
+                  await page.context().addCookies(cookiesToAdd).catch(() => {});
+                }
+                const tokenMatch = restoredHeaders.cookie.match(/(?:^|;\s*)token=([^;]+)/);
+                if (tokenMatch) {
+                  const tok = decodeURIComponent(tokenMatch[1].trim());
+                  await page.evaluate((t) => {
+                    try {
+                      localStorage.setItem("token", t);
+                      document.cookie = `token=${encodeURIComponent(t)}; path=/; domain=.qwen.ai; max-age=31536000`;
+                    } catch {}
+                  }, tok).catch(() => {});
+                }
+              } catch {}
+            }
             cache.headers = restoredHeaders;
             if (persisted.version) {
               updateQwenWebVersion(persisted.version);
@@ -1335,7 +1359,11 @@ export async function getBasicHeaders(accountId: string): Promise<{
     const bxV = cache.headers["bx-v"] || "2.5.37";
 
     // Read cookie AFTER all refreshes (re-login may have updated it)
-    const cookie = await getCookies(accountId);
+    cookieCaches.delete(accountId);
+    const cookie = await getCookies(accountId, true);
+    if (cache.headers) {
+      cache.headers["cookie"] = cookie;
+    }
 
     return {
       cookie,
@@ -1580,6 +1608,31 @@ export async function initPlaywrightForAccount(
               ...(persisted.version ? { version: persisted.version } : {}),
             };
             if (hasRequiredQwenHeaders(restoredHeaders) && hasValidAuthToken(restoredHeaders.cookie)) {
+              // Inject cookies into Chromium browser context so in-page requests are authenticated
+              try {
+                const cookiesToAdd = parseCookiesForBrowser(restoredHeaders.cookie);
+                if (cookiesToAdd.length > 0) {
+                  await acctContext.addCookies(cookiesToAdd).catch(() => {});
+                }
+                const tokenMatch = restoredHeaders.cookie.match(/(?:^|;\s*)token=([^;]+)/);
+                if (tokenMatch && !acctPage.isClosed()) {
+                  const tok = decodeURIComponent(tokenMatch[1].trim());
+                  await acctPage.evaluate((t) => {
+                    try {
+                      localStorage.setItem("token", t);
+                      document.cookie = `token=${encodeURIComponent(t)}; path=/; domain=.qwen.ai; max-age=31536000`;
+                    } catch {}
+                  }, tok).catch(() => {});
+                }
+
+                // Read live cookies from browser context (including fresh acw_tc from recent navigation)
+                const liveCookies = await acctContext.cookies();
+                if (liveCookies.length > 0 && liveCookies.some((c) => c.name === "token")) {
+                  restoredHeaders.cookie = liveCookies.map((c) => `${c.name}=${c.value}`).join("; ");
+                  cookieCaches.set(account.id, { cookie: restoredHeaders.cookie, timestamp: Date.now() });
+                }
+              } catch {}
+
               const cache = getHeaderCache(account.id);
               cache.headers = restoredHeaders;
               if (persisted.version) {
@@ -1874,6 +1927,17 @@ async function loginToQwen(
     // Try API login first
     const apiResult = await loginViaApi(page, email, password);
     if (apiResult.success) {
+      cookieCaches.delete(accountId);
+      const cache = headerCaches.get(accountId);
+      if (cache) {
+        cache.headers = {};
+        cache.lastRefresh = 0;
+      }
+      unmarkAccountHeadersReady(accountId);
+      try {
+        const { deleteAuthSession } = await import("../core/database.ts");
+        deleteAuthSession(accountId);
+      } catch {}
       await saveStorageState(page.context(), accountId);
       return true;
     }
@@ -1893,6 +1957,17 @@ async function loginToQwen(
     // Fallback to UI login
     const uiResult = await loginViaUi(page, email, password);
     if (uiResult.success) {
+      cookieCaches.delete(accountId);
+      const cache = headerCaches.get(accountId);
+      if (cache) {
+        cache.headers = {};
+        cache.lastRefresh = 0;
+      }
+      unmarkAccountHeadersReady(accountId);
+      try {
+        const { deleteAuthSession } = await import("../core/database.ts");
+        deleteAuthSession(accountId);
+      } catch {}
       await saveStorageState(page.context(), accountId);
       return true;
     }
@@ -1935,17 +2010,6 @@ async function loginViaApi(
   password: string,
 ): Promise<LoginAttemptResult> {
   try {
-    await page.goto(qwenUrl("/auth"), {
-      waitUntil: "domcontentloaded",
-      timeout: config.timeouts.navigation,
-    });
-    await sleep(2000);
-
-    // Check if already logged in
-    if (!page.url().includes("/auth")) {
-      return { success: true };
-    }
-
     const hashedPassword = crypto
       .createHash("sha256")
       .update(password)
@@ -1968,6 +2032,7 @@ async function loginViaApi(
             accept: "application/json, text/plain, */*",
             referer: qwenUrl("/auth"),
             origin: qwenOrigin(),
+            source: "web",
           },
           timeout: 10_000,
         });
@@ -2093,19 +2158,11 @@ async function loginViaUi(
   password: string,
 ): Promise<LoginAttemptResult> {
   try {
-    if (page.url().startsWith(qwenOrigin()) && !page.url().includes("/auth") && !page.url().includes("/login")) {
-      return { success: true };
-    }
     await page.goto(qwenUrl("/auth"), {
       waitUntil: "domcontentloaded",
       timeout: config.timeouts.navigation,
     });
     await sleep(1500);
-
-    // Check if already logged in
-    if (!page.url().includes("/auth") && !page.url().includes("/login")) {
-      return { success: true };
-    }
 
     // Wait for email input
     const emailSelector = [
@@ -2851,6 +2908,30 @@ export function hasValidAuthToken(cookieHeader?: string): boolean {
     return false;
   }
   return true;
+}
+
+export function parseCookiesForBrowser(cookieHeader: string): Array<{ name: string; value: string; domain: string; path: string; expires: number }> {
+  if (!cookieHeader) return [];
+  const pairs = cookieHeader.split(";").map((s) => s.trim()).filter(Boolean);
+  const result: Array<{ name: string; value: string; domain: string; path: string; expires: number }> = [];
+  const expires = Math.floor(Date.now() / 1000) + 3600 * 24 * 365;
+  for (const pair of pairs) {
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx !== -1) {
+      const name = pair.slice(0, eqIdx).trim();
+      const value = pair.slice(eqIdx + 1).trim();
+      if (name) {
+        result.push({
+          name,
+          value,
+          domain: ".qwen.ai",
+          path: "/",
+          expires,
+        });
+      }
+    }
+  }
+  return result;
 }
 
 /**
