@@ -350,14 +350,6 @@ export async function isPageLoggedIn(
     const probe = page
       .evaluate(async () => {
         try {
-          // If DOM visibly shows login/auth buttons or logged-out marker, page is not logged in
-          const authBtn = document.querySelector(".header-right-auth-button, .auth-buttons");
-          if (authBtn) {
-            const style = window.getComputedStyle(authBtn);
-            if (style.display !== "none" && style.visibility !== "hidden") {
-              return false;
-            }
-          }
           if (localStorage.getItem("qwen_token_logged_out_marker")) {
             return false;
           }
@@ -390,6 +382,26 @@ export async function isPageLoggedIn(
               user.token,
           );
           if (!hasIdentity) return false;
+
+          // Check if Alibaba revoked the session upstream
+          try {
+            const refreshRes = await fetch("https://auth.qwen.ai/api/v2/auths/refresh", {
+              method: "GET",
+              signal: AbortSignal.timeout(3000),
+            });
+            if (refreshRes.status === 200) {
+              const refreshJson: any = await refreshRes.json().catch(() => null);
+              if (refreshJson && refreshJson.success === false) {
+                const code = refreshJson.data?.code || refreshJson.code;
+                const details = String(refreshJson.data?.details || "");
+                if (code === "Unauthorized" || details.includes("revogado") || details.includes("revoked")) {
+                  return false;
+                }
+              }
+            } else if (refreshRes.status === 401 || refreshRes.status === 403) {
+              return false;
+            }
+          } catch {}
 
           // If an authenticated user object is confirmed with a real user identity,
           // the session is 100% valid and verified by upstream.
@@ -2016,6 +2028,13 @@ async function loginToQwen(
 
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (page.isClosed()) {
+      console.warn(
+        `⚠️  [Playwright] Login aborted: page was closed for ${maskEmail(email)}`,
+      );
+      return false;
+    }
+
     // Try API login first
     const apiResult = await loginViaApi(page, email, password);
     if (apiResult.success) {
@@ -2083,6 +2102,20 @@ async function loginToQwen(
       );
       await sleep(backoffMs);
     }
+
+    if (page.isClosed()) {
+      console.warn(
+        `⚠️  [Playwright] Login aborted: page was closed for ${maskEmail(email)}`,
+      );
+      return false;
+    }
+  }
+
+  if (page.isClosed()) {
+    console.warn(
+      `⚠️  [Playwright] Login aborted: page was closed for ${maskEmail(email)}`,
+    );
+    return false;
   }
 
   console.error(
@@ -2210,17 +2243,13 @@ async function loginViaApi(
         await page
           .evaluate((tok) => {
             try {
+              localStorage.removeItem("qwen_token_logged_out_marker");
               localStorage.setItem("token", tok);
               document.cookie = `token=${encodeURIComponent(tok)}; path=/; domain=.qwen.ai; max-age=31536000`;
             } catch {}
           }, token)
           .catch(() => {});
         await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-      }
-
-      await sleep(1500);
-      const loggedIn = await isPageLoggedIn(page, 8_000);
-      if (loggedIn) {
         return { success: true };
       }
     }
@@ -2679,13 +2708,7 @@ export async function captureQwenHeaders(
       // (as a last-resort recovery before giving up) and with a generous 8s timeout.
       const currentUrl = typeof page.url === "function" ? page.url() : "";
       const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-      const hasAuthButton = typeof page.evaluate === "function"
-        ? await page.evaluate(() => {
-            const btn = document.querySelector(".header-right-auth-button, .auth-buttons");
-            return Boolean(btn && window.getComputedStyle(btn).display !== "none");
-          }).catch(() => false)
-        : false;
-      const isSuspectedGuest = isAuthUrl || hasAuthButton || (attempt >= 3 && !(await isPageLoggedIn(page, 8000)));
+      const isSuspectedGuest = isAuthUrl || (attempt >= 3 && !(await isPageLoggedIn(page, 8000)));
       if (isSuspectedGuest) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
