@@ -2,7 +2,7 @@ import "dotenv/config";
 import crypto from "crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { getDatabase } from "./database.ts";
+import { getDatabase, deleteAuthSession } from "./database.ts";
 import { decrypt, encrypt } from "./crypto-utils.ts";
 import { getAccountProfilePath, getProfilesDir, isRunningUnderNodeTest } from "./paths.ts";
 import { updateEnvVariable } from "./local-auth.ts";
@@ -430,6 +430,7 @@ export function removeAccount(id: string): boolean {
   const result = db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
   if (result.changes > 0) {
     wipeAccountSessionFiles(id);
+    deleteAuthSession(id);
     if (account?.email) {
       removeAccountFromEnv(account.email);
     }

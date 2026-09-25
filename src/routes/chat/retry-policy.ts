@@ -479,11 +479,15 @@ export function classifyRetryAction(
   // Agent instructions ride ONLY the account-level personalization. An
   // unconfirmed sync means this account cannot serve the request as-is —
   // rotate to another account (each attempt re-syncs on its own account).
+  // Park the failing account with PersonalizationFailed cooldown so it does
+  // not enter an infinite ping-pong loop when multiple accounts fail.
   if (err instanceof PersonalizationSyncError) {
     return makeRetryAction("personalization_sync_failed", {
       switchAccount: true,
       forceNewChat: true,
       retryAfterMs: baseDelayMs,
+      accountCooldownMs: config.concurrency.initFailureCooldownMs,
+      accountCooldownReason: "PersonalizationFailed",
     });
   }
 

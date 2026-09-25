@@ -1283,6 +1283,34 @@ export async function getBasicHeaders(accountId: string): Promise<{
     }
 
     if (!hasRequiredQwenHeaders(cache.headers)) {
+      try {
+        const { getValidAuthSession } = await import("../core/database.ts");
+        const persisted = getValidAuthSession(accountId);
+        if (persisted) {
+          const restoredHeaders: Record<string, string> = {
+            cookie: persisted.cookie,
+            "user-agent": persisted.userAgent,
+            "bx-v": persisted.bxV,
+            "bx-ua": persisted.bxUa,
+            "bx-umidtoken": persisted.bxUmidtoken,
+            ...(persisted.secChUa ? { "sec-ch-ua": persisted.secChUa } : {}),
+            ...(persisted.secChUaMobile ? { "sec-ch-ua-mobile": persisted.secChUaMobile } : {}),
+            ...(persisted.secChUaPlatform ? { "sec-ch-ua-platform": persisted.secChUaPlatform } : {}),
+            ...(persisted.version ? { version: persisted.version } : {}),
+          };
+          if (hasRequiredQwenHeaders(restoredHeaders) && hasValidAuthToken(restoredHeaders.cookie)) {
+            cache.headers = restoredHeaders;
+            if (persisted.version) {
+              updateQwenWebVersion(persisted.version);
+            }
+            cache.lastRefresh = persisted.capturedAt;
+            markAccountHeadersReady(accountId);
+          }
+        }
+      } catch {}
+    }
+
+    if (!hasRequiredQwenHeaders(cache.headers)) {
       console.log(
         `🔄 [Playwright] Missing required anti-bot headers for ${accountId}, triggering header interception...`,
       );
@@ -1534,7 +1562,41 @@ export async function initPlaywrightForAccount(
         );
         throw validationError;
       }
+      let restoredFromDb = false;
       if (!options.skipHeaderCapture) {
+        try {
+          const { getValidAuthSession } = await import("../core/database.ts");
+          const persisted = getValidAuthSession(account.id);
+          if (persisted) {
+            const restoredHeaders: Record<string, string> = {
+              cookie: persisted.cookie,
+              "user-agent": persisted.userAgent,
+              "bx-v": persisted.bxV,
+              "bx-ua": persisted.bxUa,
+              "bx-umidtoken": persisted.bxUmidtoken,
+              ...(persisted.secChUa ? { "sec-ch-ua": persisted.secChUa } : {}),
+              ...(persisted.secChUaMobile ? { "sec-ch-ua-mobile": persisted.secChUaMobile } : {}),
+              ...(persisted.secChUaPlatform ? { "sec-ch-ua-platform": persisted.secChUaPlatform } : {}),
+              ...(persisted.version ? { version: persisted.version } : {}),
+            };
+            if (hasRequiredQwenHeaders(restoredHeaders) && hasValidAuthToken(restoredHeaders.cookie)) {
+              const cache = getHeaderCache(account.id);
+              cache.headers = restoredHeaders;
+              if (persisted.version) {
+                updateQwenWebVersion(persisted.version);
+              }
+              cache.lastRefresh = persisted.capturedAt;
+              markAccountHeadersReady(account.id);
+              restoredFromDb = true;
+              console.log(
+                `⚡ [Playwright] Restored anti-bot headers from database for ${maskEmail(account.email)} (age: ${Math.round((Date.now() - persisted.capturedAt) / 60000)}m, bypassed UI typing)`,
+              );
+            }
+          }
+        } catch {}
+      }
+
+      if (!options.skipHeaderCapture && !restoredFromDb) {
         (acctPage as any).__qwenChatHomeLoaded = true;
         await captureQwenHeaders(account.id);
       }
@@ -2408,6 +2470,26 @@ export async function captureQwenHeaders(
       // a cookie snapshot taken before this browser request.
       cookieCaches.delete(accountId);
       touchAccountActivity(accountId);
+
+      // Persist captured anti-bot headers to SQLite for instant boot
+      try {
+        const { saveAuthSession } = await import("../core/database.ts");
+        const { parseJwtExpiry } = await import("../utils/jwt.ts");
+        const tokenExpiry = parseJwtExpiry(capturedHeaders.cookie);
+        saveAuthSession(accountId, {
+          cookie: capturedHeaders.cookie,
+          userAgent: capturedHeaders["user-agent"],
+          bxV: capturedHeaders["bx-v"],
+          bxUa: capturedHeaders["bx-ua"],
+          bxUmidtoken: capturedHeaders["bx-umidtoken"],
+          secChUa: capturedHeaders["sec-ch-ua"],
+          secChUaMobile: capturedHeaders["sec-ch-ua-mobile"],
+          secChUaPlatform: capturedHeaders["sec-ch-ua-platform"],
+          version: capturedHeaders["version"],
+          tokenExpiresAt: tokenExpiry || undefined,
+          capturedAt: Date.now(),
+        });
+      } catch {}
 
       await route.abort("aborted").catch(() => {});
       await sleep(HEADER_CAPTURE_SETTLE_MS);
