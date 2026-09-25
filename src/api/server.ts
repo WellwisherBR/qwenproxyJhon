@@ -498,6 +498,7 @@ async function warmConfiguredChatPools(
   ) => Promise<void>,
   accountId?: string,
 ): Promise<void> {
+  if (config.qwen.chatPoolSize <= 0) return;
   await Promise.all(
     config.qwen.chatPoolModels.map((model) =>
       warmQwenChatPool(accountId, model).catch(() => {}),
