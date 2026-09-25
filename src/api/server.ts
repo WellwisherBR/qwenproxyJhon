@@ -812,13 +812,19 @@ export async function startServer(options?: {
     if (accounts.length > 0) {
       const totalAccounts = accounts.length;
 
-      // Warm accounts in priority order (recently successful accounts first),
+      // Warm accounts in priority order, giving top precedence to accounts
+      // that already have valid, non-expired sessions in SQLite (restores in ~0.5s),
       // skipping accounts still on cooldown. Warm the primary account first so
-      // the server binds the port and goes online immediately (~15-20s).
+      // the server binds the port and goes online immediately (~5-10s).
       // Reserve account(s) and standby validations run seamlessly in background.
-      const warmOrder = getAccountsByPriority(accounts).filter(
-        (account) => !getAccountCooldownInfo(account.id),
-      );
+      const { getValidAuthSession } = await import("../core/database.ts");
+      const warmOrder = getAccountsByPriority(accounts)
+        .filter((account) => !getAccountCooldownInfo(account.id))
+        .sort((a, b) => {
+          const aHasSession = getValidAuthSession(a.id) !== null ? 1 : 0;
+          const bHasSession = getValidAuthSession(b.id) !== null ? 1 : 0;
+          return bHasSession - aHasSession;
+        });
       const readyAccountIds = new Set<string>();
 
       for (let i = 0; i < warmOrder.length; i++) {
@@ -838,9 +844,13 @@ export async function startServer(options?: {
         }
       }
 
-      const remainingAccounts = accounts.filter(
-        (account) => !readyAccountIds.has(account.id),
-      );
+      const remainingAccounts = accounts
+        .filter((account) => !readyAccountIds.has(account.id))
+        .sort((a, b) => {
+          const aHasSession = getValidAuthSession(a.id) !== null ? 1 : 0;
+          const bHasSession = getValidAuthSession(b.id) !== null ? 1 : 0;
+          return bHasSession - aHasSession;
+        });
       if (readyAccountIds.size === 0) {
         console.warn(
           `⚠️  [Server] No account ready during startup; continuing in background`,

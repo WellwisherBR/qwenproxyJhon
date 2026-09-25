@@ -2703,12 +2703,12 @@ export async function captureQwenHeaders(
 
       // Session-expiry check: if the page redirected to /auth or /login,
       // re-login immediately.
-      // On attempts 1 and 2, do NOT run a tight 3s fetch probe because the session
-      // was already verified during init. Only run isPageLoggedIn if attempt >= 3
-      // (as a last-resort recovery before giving up) and with a generous 8s timeout.
+      // On attempt 1, skip probe because the session was just verified during init.
+      // On attempt 2+, probe isPageLoggedIn to catch revoked sessions or guest state
+      // immediately without waiting for repeated silent timeouts.
       const currentUrl = typeof page.url === "function" ? page.url() : "";
       const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-      const isSuspectedGuest = isAuthUrl || (attempt >= 3 && !(await isPageLoggedIn(page, 8000)));
+      const isSuspectedGuest = isAuthUrl || (attempt >= 2 && !(await isPageLoggedIn(page, 5000)));
       if (isSuspectedGuest) {
         const { getAccountCredentials } = await import("../core/accounts.ts");
         const creds = getAccountCredentials(accountId);
