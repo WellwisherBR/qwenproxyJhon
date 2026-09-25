@@ -1639,11 +1639,35 @@ export async function initPlaywrightForAccount(
                 updateQwenWebVersion(persisted.version);
               }
               cache.lastRefresh = persisted.capturedAt;
-              markAccountHeadersReady(account.id);
-              restoredFromDb = true;
-              console.log(
-                `⚡ [Playwright] Restored anti-bot headers from database for ${maskEmail(account.email)} (age: ${Math.round((Date.now() - persisted.capturedAt) / 60000)}m, bypassed UI typing)`,
-              );
+
+              // Verify that the restored session is actually live and authenticated
+              const isLiveLoggedIn = await isPageLoggedIn(acctPage, 3_000);
+              if (isLiveLoggedIn) {
+                markAccountHeadersReady(account.id);
+                restoredFromDb = true;
+                console.log(
+                  `⚡ [Playwright] Restored anti-bot headers from database for ${maskEmail(account.email)} (age: ${Math.round((Date.now() - persisted.capturedAt) / 60000)}m, bypassed UI typing)`,
+                );
+              } else {
+                console.warn(
+                  `⚠️  [Playwright] Restored session for ${maskEmail(account.email)} was revoked upstream; invalidating and re-authenticating...`,
+                );
+                try {
+                  const { deleteAuthSession } = await import("../core/database.ts");
+                  deleteAuthSession(account.id);
+                } catch {}
+                unmarkAccountHeadersReady(account.id);
+                cache.headers = {};
+                cache.lastRefresh = 0;
+                if (account.email && account.password) {
+                  const reauthOk = await loginToQwen(account.id, account.email, account.password);
+                  if (reauthOk) {
+                    (acctPage as any).__qwenChatHomeLoaded = true;
+                    await captureQwenHeaders(account.id);
+                    restoredFromDb = true;
+                  }
+                }
+              }
             }
           }
         } catch {}
@@ -2127,7 +2151,7 @@ async function loginViaApi(
       }
 
       await sleep(1500);
-      const loggedIn = await isPageLoggedIn(page, 5_000);
+      const loggedIn = await isPageLoggedIn(page, 8_000);
       if (loggedIn) {
         return { success: true };
       }
@@ -2174,9 +2198,12 @@ async function loginViaUi(
     ].join(", ");
     try {
       await page.waitForSelector(emailSelector, {
-        timeout: config.timeouts.page,
+        timeout: Math.min(config.timeouts.page, 8_000),
       });
     } catch {
+      if (!page.url().includes("/auth") && (await isPageLoggedIn(page, 3000))) {
+        return { success: true };
+      }
       if (!page.url().includes("/auth")) return { success: true };
       console.warn(
         `⚠️  [Playwright] Email input not found on ${page.url()} (possible captcha or anti-bot challenge)`,
