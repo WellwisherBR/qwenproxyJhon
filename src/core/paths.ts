@@ -86,12 +86,6 @@ export function resolveDataDir(options?: ResolveDataDirOptions): string {
   // 2. Automated test isolation
   const isTest = options?.isNodeTest ?? isRunningUnderNodeTest();
   if (isTest) {
-    if (options?.localDataExists === false) {
-      return path.resolve("data-test");
-    }
-    if (fs.existsSync(path.resolve("data"))) {
-      return path.resolve("data");
-    }
     return path.resolve("data-test");
   }
   // 3. Local repository checkout (development mode)
