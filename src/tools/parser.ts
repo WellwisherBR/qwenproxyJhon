@@ -412,7 +412,13 @@ function findPartialToolOpenIndexOutsideMarkdownCode(
       if (!tailLower.includes(">")) {
         for (const name of openNames) {
           const full = `<${name.toLowerCase()}`;
-          if (full.startsWith(tailLower)) {
+          if (
+            full.startsWith(tailLower) ||
+            tailLower.startsWith(full + "=") ||
+            tailLower.startsWith(full + " ") ||
+            tailLower.startsWith(full + "\t") ||
+            tailLower.startsWith(full + ":")
+          ) {
             return i;
           }
         }

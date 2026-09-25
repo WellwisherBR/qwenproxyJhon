@@ -968,3 +968,25 @@ test("StreamingToolParser: parses function shorthand with named parameter tags",
   assert.strictEqual(calls[0].name, "read_file");
   assert.deepStrictEqual(calls[0].arguments, { path: "src/app.ts" });
 });
+
+test("StreamingToolParser: parses <function=name> when streamed in small chunks (partial open tag)", () => {
+  const parser = new StreamingToolParser(TOOLS);
+  const input =
+    "<function=read_file>\n<parameter=path>src/index.ts</parameter>\n</function>";
+  let text = "";
+  const toolCalls: any[] = [];
+  for (let i = 0; i < input.length; i += 3) {
+    const res = parser.feed(input.slice(i, i + 3));
+    text += res.text;
+    toolCalls.push(...res.toolCalls);
+  }
+  const flushed = parser.flush();
+  text += flushed.text;
+  toolCalls.push(...flushed.toolCalls);
+
+  assert.strictEqual(text, "");
+  assert.strictEqual(toolCalls.length, 1);
+  assert.strictEqual(toolCalls[0].name, "read_file");
+  assert.deepStrictEqual(toolCalls[0].arguments, { path: "src/index.ts" });
+});
+
