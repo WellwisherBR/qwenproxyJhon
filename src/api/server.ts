@@ -766,7 +766,7 @@ export async function startServer(options?: {
   startPromise = (async () => {
     const { getAppVersion } = await import("../core/version.ts");
     const appVersion = getAppVersion();
-    if (options?.showBanner !== false) {
+    if (options?.showBanner !== false && !isAuthMockEnabled()) {
       console.log(`🚀 [Server] Iniciando QwenProxy ${appVersion} na porta ${config.server.port}...`);
     }
 
@@ -1041,7 +1041,7 @@ export async function startServer(options?: {
 
     const endpoint = `${started.url}/v1`;
 
-    if (options?.showBanner !== false) {
+    if (options?.showBanner !== false && !isAuthMockEnabled()) {
       console.log(`
 +${"-".repeat(W)}+
 |${blank()}|
