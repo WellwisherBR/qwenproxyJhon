@@ -360,7 +360,7 @@ export function saveAuthSession(
 
 export function getValidAuthSession(
   accountId: string,
-  maxAgeMs = 4 * 60 * 60 * 1000,
+  maxAgeMs = 30 * 24 * 60 * 60 * 1000,
 ): PersistedAuthSession | null {
   const database = getDatabase();
   const row = database

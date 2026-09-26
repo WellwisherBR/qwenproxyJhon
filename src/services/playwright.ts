@@ -524,10 +524,10 @@ interface AccountHeaderCache {
 }
 
 const headerCaches = new Map<string, AccountHeaderCache>();
-// Real TTL measured from Qwen: auth token = 30 days, shortest cookie (acw_tc) = 24 min.
-// 20 min is safe: under the 24-min acw_tc, and bx-ua expiry is handled by 403 retry.
-const HEADER_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
-const HEADER_REFRESH_THRESHOLD = 0.8; // Background refresh at 80% of TTL (16 min)
+// Real TTL measured from Qwen: auth token = 30 days. Anti-bot tokens remain stable
+// across the browser session; cookies are dynamically updated from the browser context.
+const HEADER_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const HEADER_REFRESH_THRESHOLD = 0.8; // Background refresh at 80% of TTL
 const COOKIE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 const cookieCaches = new Map<string, { cookie: string; timestamp: number }>();
 const lastAccountActivity = new Map<string, number>();
@@ -1288,8 +1288,7 @@ export async function getBasicHeaders(accountId: string): Promise<{
       const cookieSnapshot = await getCookieSnapshot(accountId);
       if (
         cookieSnapshot &&
-        isAuthTokenValidFrom(cookieSnapshot) &&
-        isShortestCookieValidFrom(cookieSnapshot)
+        isAuthTokenValidFrom(cookieSnapshot)
       ) {
         // Token is still valid - just refresh cookies, keep cached headers
         const cookie = cookieSnapshot
@@ -1633,69 +1632,8 @@ export async function initPlaywrightForAccount(
       installContextDeathHandlers(account.id, acctContext, acctPage);
       touchAccountActivity(account.id);
 
-      // Check if already logged in
-      const cookies = await acctContext.cookies();
-      const hasAuthCookie = cookies.some(
-        (c) =>
-          c.name.toLowerCase().includes("token") ||
-          c.name.toLowerCase().includes("session"),
-      );
-
-      if (!hasAuthCookie && account.email && account.password) {
-        await loginToQwen(account.id, account.email, account.password);
-      }
-
-      // Navigate to the stable chat page to validate the session and populate cookies.
-      // Retry up to 2 times on transient timeouts before giving up.
-      const maxValidationAttempts = 2;
-      let validationError: Error | null = null;
-      for (let vAttempt = 1; vAttempt <= maxValidationAttempts; vAttempt++) {
-        try {
-          await acctPage.goto(qwenUrl("/"), {
-            waitUntil: "domcontentloaded",
-            timeout: config.timeouts.navigation,
-          });
-          await sleep(1500);
-          const currentUrl = acctPage.url();
-          const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
-          const loggedIn = !isAuthUrl && (await isPageLoggedIn(acctPage, 4_000));
-          if (!loggedIn) {
-            if (account.email && account.password) {
-              console.log(
-                `[Playwright] Session expired or guest state detected for ${maskEmail(account.email)}, re-authenticating...`,
-              );
-              const ok = await loginToQwen(account.id, account.email, account.password);
-              if (!ok || !(await isPageLoggedIn(acctPage, 4_000))) {
-                validationError = new Error(
-                  `Session expired for ${maskEmail(account.email)} and re-authentication failed`,
-                );
-                continue;
-              }
-            } else {
-              validationError = new Error(
-                `Session expired for account ${account.id} but no credentials available for re-login (run 'qpx login')`,
-              );
-              break;
-            }
-          }
-          validationError = null;
-          break;
-        } catch (err: any) {
-          validationError = err;
-          if (vAttempt < maxValidationAttempts) {
-            console.warn(
-              `⚠️  [Playwright] Session validation attempt ${vAttempt}/${maxValidationAttempts} failed for ${maskEmail(account.email)}: ${err.message}, retrying...`,
-            );
-            await sleep(3000);
-          }
-        }
-      }
-      if (validationError) {
-        console.warn(
-          `❌ [Playwright] Failed to validate session for ${maskEmail(account.email)} after ${maxValidationAttempts} attempts: ${validationError.message}`,
-        );
-        throw validationError;
-      }
+      // 1. Fast boot: if a valid session exists in SQLite, restore headers and cookies instantly.
+      // Eliminates redundant navigations, DOM probes, and fake UI typing on healthy accounts.
       let restoredFromDb = false;
       if (!options.skipHeaderCapture) {
         try {
@@ -1731,7 +1669,7 @@ export async function initPlaywrightForAccount(
                   }, tok).catch(() => {});
                 }
 
-                // Read live cookies from browser context (including fresh acw_tc from recent navigation)
+                // Read live cookies from browser context
                 const liveCookies = await acctContext.cookies();
                 if (liveCookies.length > 0 && liveCookies.some((c) => c.name === "token")) {
                   restoredHeaders.cookie = liveCookies.map((c) => `${c.name}=${c.value}`).join("; ");
@@ -1745,41 +1683,60 @@ export async function initPlaywrightForAccount(
                 updateQwenWebVersion(persisted.version);
               }
               cache.lastRefresh = persisted.capturedAt;
-
-              // Verify that the restored session is actually live and authenticated
-              const isLiveLoggedIn = await isPageLoggedIn(acctPage, 5_000);
-              if (isLiveLoggedIn) {
-                markAccountHeadersReady(account.id);
-                restoredFromDb = true;
-                console.log(
-                  `⚡ [Playwright] Restored anti-bot headers from database for ${maskEmail(account.email)} (age: ${Math.round((Date.now() - persisted.capturedAt) / 60000)}m, bypassed UI typing)`,
-                );
-              } else {
-                console.warn(
-                  `⚠️  [Playwright] Restored session for ${maskEmail(account.email)} was revoked upstream; invalidating and re-authenticating...`,
-                );
-                try {
-                  const { deleteAuthSession } = await import("../core/database.ts");
-                  deleteAuthSession(account.id);
-                } catch {}
-                unmarkAccountHeadersReady(account.id);
-                cache.headers = {};
-                cache.lastRefresh = 0;
-                if (account.email && account.password) {
-                  const reauthOk = await loginToQwen(account.id, account.email, account.password);
-                  if (reauthOk) {
-                    (acctPage as any).__qwenChatHomeLoaded = true;
-                    await captureQwenHeaders(account.id);
-                    restoredFromDb = true;
-                  }
-                }
-              }
+              markAccountHeadersReady(account.id);
+              restoredFromDb = true;
+              console.log(
+                `⚡ [Playwright] Restored anti-bot headers from database for ${maskEmail(account.email)} (age: ${Math.round((Date.now() - persisted.capturedAt) / 60000)}m, bypassed UI typing)`,
+              );
             }
           }
         } catch {}
       }
 
-      if (!options.skipHeaderCapture && !restoredFromDb) {
+      if (restoredFromDb) {
+        if (!acctPage.isClosed() && (acctPage.url() === "about:blank" || !acctPage.url().startsWith(qwenOrigin()))) {
+          void acctPage.goto(qwenUrl("/"), {
+            waitUntil: "domcontentloaded",
+            timeout: config.timeouts.navigation,
+          }).catch(() => {});
+        }
+        return;
+      }
+
+      // 2. Initial setup for fresh accounts without prior session: check cookies or authenticate
+      const cookies = await acctContext.cookies();
+      const hasAuthCookie = cookies.some(
+        (c) =>
+          c.name.toLowerCase().includes("token") ||
+          c.name.toLowerCase().includes("session"),
+      );
+
+      if (!hasAuthCookie && account.email && account.password) {
+        await loginToQwen(account.id, account.email, account.password);
+      }
+
+      // Initial navigation to chat home
+      try {
+        await acctPage.goto(qwenUrl("/"), {
+          waitUntil: "domcontentloaded",
+          timeout: config.timeouts.navigation,
+        });
+        await sleep(1500);
+        const currentUrl = acctPage.url();
+        const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
+        if (isAuthUrl && account.email && account.password) {
+          console.log(
+            `[Playwright] Initial login needed for ${maskEmail(account.email)}, authenticating...`,
+          );
+          await loginToQwen(account.id, account.email, account.password);
+        }
+      } catch (err: any) {
+        console.warn(
+          `⚠️  [Playwright] Initial navigation check for ${maskEmail(account.email)}: ${err.message}`,
+        );
+      }
+
+      if (!options.skipHeaderCapture) {
         (acctPage as any).__qwenChatHomeLoaded = true;
         await captureQwenHeaders(account.id);
       }
@@ -3154,6 +3111,7 @@ async function refreshHeadersInternal(
   try {
     // Check if session is expired before capturing headers
     const page = accountPages.get(accountId);
+    let reauthExecuted = false;
     if (page) {
       const executeReauth = async () => {
         console.warn(
@@ -3170,6 +3128,7 @@ async function refreshHeadersInternal(
               `Re-login for ${accountId} did not restore an authenticated session`,
             );
           }
+          reauthExecuted = true;
         } else {
           unmarkAccountHeadersReady(accountId);
           throw new Error(
@@ -3202,6 +3161,37 @@ async function refreshHeadersInternal(
             (navErr as Error).message,
           );
           await executeReauth();
+        }
+      }
+
+      // Fast re-auth completion: if re-auth succeeded and required anti-bot tokens are already cached,
+      // refresh cookies directly without running slow UI typing interception.
+      if (reauthExecuted && hasRequiredQwenHeaders(cache.headers)) {
+        const liveCookies = await page.context().cookies();
+        if (liveCookies.some((c) => c.name === "token")) {
+          const cookieStr = liveCookies.map((c) => `${c.name}=${c.value}`).join("; ");
+          cache.headers.cookie = cookieStr;
+          cache.lastRefresh = Date.now();
+          markAccountHeadersReady(accountId);
+          try {
+            const { saveAuthSession } = await import("../core/database.ts");
+            const tokenCookie = liveCookies.find((c) => c.name === "token");
+            const exp = tokenCookie ? parseJwtExpiry(tokenCookie.value) : undefined;
+            saveAuthSession(accountId, {
+              cookie: cookieStr,
+              userAgent: cache.headers["user-agent"] || "",
+              bxV: cache.headers["bx-v"] || "2.5.37",
+              bxUa: cache.headers["bx-ua"] || "",
+              bxUmidtoken: cache.headers["bx-umidtoken"] || "",
+              secChUa: cache.headers["sec-ch-ua"] || undefined,
+              secChUaMobile: cache.headers["sec-ch-ua-mobile"] || undefined,
+              secChUaPlatform: cache.headers["sec-ch-ua-platform"] || undefined,
+              version: cache.headers["version"] || undefined,
+              tokenExpiresAt: exp || undefined,
+              capturedAt: Date.now(),
+            });
+          } catch {}
+          return;
         }
       }
     }
