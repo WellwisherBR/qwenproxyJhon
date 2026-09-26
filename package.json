@@ -72,6 +72,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.4.1",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   },
   "type": "module",
