@@ -1487,19 +1487,24 @@ async function tryCreateStreamWithRetry(
 			};
 		}
 
-		if (
+		const isSessionExpired =
 			err instanceof QwenSessionExpiredError ||
-			err.name === "QwenSessionExpiredError"
-		) {
+			err?.name === "QwenSessionExpiredError" ||
+			(err instanceof Error &&
+				(err.message.toLowerCase().includes("token has expired") ||
+					err.message.toLowerCase().includes("session expired") ||
+					err.message.toLowerCase().includes("401 não autorizado") ||
+					err.message.toLowerCase().includes("unauthorized")));
+
+		if (isSessionExpired) {
 			console.warn(
-				`🔄 [Chat] Session expired for ${currentAccountEmail} (${currentAccountId}). Attempting re-login...`,
+				`🔄 [Chat] Session expired for ${currentAccountEmail} (${currentAccountId}). Attempting silent token refresh/re-login...`,
 			);
 			const reLoginOk = await attemptRelogin(
 				currentAccountId,
 				currentAccountEmail,
 			);
 			if (reLoginOk) continue;
-			return { success: false, error: err };
 		}
 
 

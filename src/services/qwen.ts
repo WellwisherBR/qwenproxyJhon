@@ -2502,15 +2502,23 @@ function parseQwenJsonError(
 
   if (errorJson?.success === false) {
     const code = errorJson.data?.code || errorJson.code || "UpstreamError";
+    const detailsStr = typeof details === "string" ? details : "";
+    const codeStr = String(code).toLowerCase();
+    const detailsLower = detailsStr.toLowerCase();
 
-    if (
+    const isAuthExpired =
       status === 401 ||
-      code === "Unauthorized" ||
-      (typeof details === "string" &&
-        (details.includes("login") || details.includes("session")))
-    ) {
+      codeStr.includes("unauthorized") ||
+      detailsLower.includes("token has expired") ||
+      detailsLower.includes("log in") ||
+      detailsLower.includes("login") ||
+      detailsLower.includes("session") ||
+      detailsLower.includes("não autorizado") ||
+      detailsLower.includes("unauthorized");
+
+    if (isAuthExpired) {
       return new QwenSessionExpiredError(
-        `Session expired: ${details}`,
+        `Session expired: ${detailsStr || codeStr}`,
         accountId || "global",
       );
     }
@@ -3301,8 +3309,29 @@ async function createQwenStreamInternal(
           );
         }
 
+        const parsedJsonErr = parseQwenJsonError(errText, response.status, accountId);
+        if (
+          parsedJsonErr instanceof QwenSessionExpiredError &&
+          accountId &&
+          !retriedNonSseResponse
+        ) {
+          retriedNonSseResponse = true;
+          logger.warn(
+            "[Qwen] Token expired on completion fetch (200 JSON); refreshing session and retrying",
+            { accountId, chatId: chatSessionId ?? "new" },
+          );
+          const { refreshAccountToken } = await import("./playwright.ts");
+          const refreshed = await refreshAccountToken(accountId);
+          if (refreshed.success) {
+            const fresh = await getQwenHeaders(false, accountId);
+            activeHeaders = fresh.headers;
+            response = await fetchCompletion(activeHeaders);
+            continue;
+          }
+        }
+
         throw withCreatedChatMetadata(
-          parseQwenJsonError(errText, response.status, accountId) ??
+          parsedJsonErr ??
             new QwenUpstreamError(
               `Qwen returned non-stream JSON response: ${errText.substring(0, 300)}`,
               "NonStreamJsonResponse",
@@ -3378,6 +3407,35 @@ async function createQwenStreamInternal(
             response.status,
             accountId,
           );
+          if (
+            parsedError instanceof QwenSessionExpiredError &&
+            accountId &&
+            !retriedNonSseResponse
+          ) {
+            retriedNonSseResponse = true;
+            logger.warn(
+              "[Qwen] Token expired on completion fetch (!response.ok); refreshing session and retrying",
+              { accountId, chatId: chatSessionId ?? "new", status: response.status },
+            );
+            const { refreshAccountToken } = await import("./playwright.ts");
+            const refreshed = await refreshAccountToken(accountId);
+            if (refreshed.success) {
+              const fresh = await getQwenHeaders(false, accountId);
+              activeHeaders = fresh.headers;
+              response = await fetchCompletion(activeHeaders);
+              if (response.ok && response.body) {
+                return {
+                  stream: wrapUpstreamStream(response.body, controller),
+                  headers: activeHeaders,
+                  uiSessionId: chatSessionId || "",
+                  controller,
+                  accountId: accountId ?? "global",
+                  createdNewChat,
+                  tokenEstimationContext,
+                };
+              }
+            }
+          }
           if (parsedError) {
             throw withCreatedChatMetadata(parsedError);
           }
