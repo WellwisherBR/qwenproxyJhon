@@ -76,6 +76,7 @@ const envSchema = z
     // own context while serving. Accounts in cooldown (rate-limited) sit idle,
     // drop out of the warm set and get evicted.
     PLAYWRIGHT_MAX_ACTIVE_CONTEXTS: z.string().default("2"),
+    PLAYWRIGHT_STARTUP_WARM_ACCOUNTS: z.string().default("4"),
     PLAYWRIGHT_PREPARE_ALL_ON_STARTUP: z.string().default("false"),
     CAPTCHA_SOLVER_ENABLED: z.string().default("true"),
     CAPTCHA_SOLVER_MAX_ATTEMPTS: z.string().default("3"),
@@ -235,6 +236,7 @@ export const config = {
     jsHeapMb: Math.max(64, parseInt(env.PLAYWRIGHT_JS_HEAP_MB)),
     lowMemoryFlags: env.PLAYWRIGHT_LOW_MEMORY_FLAGS !== "false",
     maxActiveContexts: Math.max(0, parseInt(env.PLAYWRIGHT_MAX_ACTIVE_CONTEXTS)),
+    startupWarmAccounts: Math.max(1, parseInt(env.PLAYWRIGHT_STARTUP_WARM_ACCOUNTS)),
     prepareAllOnStartup: env.PLAYWRIGHT_PREPARE_ALL_ON_STARTUP !== "false",
   },
   captcha: {

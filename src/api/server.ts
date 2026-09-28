@@ -877,23 +877,20 @@ export async function startServer(options?: {
           );
         });
       } else if (remainingAccounts.length > 0) {
-        console.log(
-          `🪶 [Server] ${remainingAccounts.length} standby account(s) will initialize on demand`,
-        );
-
-        // In background: warm 1 reserve account (if maxActiveContexts > 1) and
-        // validate the rest of the standby accounts
+        // In background: warm reserve accounts up to a safe limit (default 4 total ready accounts)
+        // to prevent IP-level login flood / anti-bot challenge rate-limits on Alibaba.
         void (async () => {
-          const { validateAccountLogin } = await import("../services/playwright.ts");
           const { ensureAccountInPriority } = await import("../core/account-priority.ts");
 
-          let accountsToValidate = remainingAccounts;
+          const targetWarmTotal = Math.min(
+            config.playwright.startupWarmAccounts,
+            totalAccounts,
+          );
+          let currentReadyCount = readyAccountIds.size;
 
-          // Warm reserve account in background for fast failover without delaying startup
-          if (config.playwright.maxActiveContexts > 1 && remainingAccounts.length > 0) {
-            let reserveCandidateIdx = 0;
-            for (; reserveCandidateIdx < remainingAccounts.length; reserveCandidateIdx++) {
-              const reserveAccount = remainingAccounts[reserveCandidateIdx];
+          if (currentReadyCount < targetWarmTotal && remainingAccounts.length > 0) {
+            for (const reserveAccount of remainingAccounts) {
+              if (currentReadyCount >= targetWarmTotal) break;
               try {
                 const ok = await prepareAccountRuntime(
                   reserveAccount,
@@ -903,12 +900,12 @@ export async function startServer(options?: {
                   warmQwenChatPool,
                 );
                 if (ok) {
+                  readyAccountIds.add(reserveAccount.id);
                   ensureAccountInPriority(reserveAccount.id);
+                  currentReadyCount++;
                   console.log(
-                    `✅ [Server] Reserve account ready (2/${totalAccounts}): ${maskEmail(reserveAccount.email)}`,
+                    `✅ [Server] Reserve account ready (${currentReadyCount}/${totalAccounts}): ${maskEmail(reserveAccount.email)}`,
                   );
-                  reserveCandidateIdx++;
-                  break;
                 }
               } catch (err) {
                 console.warn(
@@ -916,56 +913,17 @@ export async function startServer(options?: {
                 );
               }
             }
-            accountsToValidate = remainingAccounts.slice(reserveCandidateIdx);
           }
 
-          let validated = 0;
-          let failed = 0;
-
-          for (const account of accountsToValidate) {
-            try {
-              const creds = getAccountCredentials(account.id) ?? account;
-              // Validate login in background with real unmasked credentials
-              const ok = await validateAccountLogin(
-                creds,
-                config.playwright.headless,
-                config.playwright.browser,
-              );
-              if (ok) {
-                // Add to priority list only once validated
-                ensureAccountInPriority(account.id);
-                validated++;
-                console.log(
-                  `✅ [Server] Standby account validated: ${maskEmail(account.email)}`,
-                );
-              } else {
-                failed++;
-                console.warn(
-                  `⚠️  [Server] Standby account login failed: ${maskEmail(account.email)} (quarantined)`,
-                );
-              }
-            } catch (error) {
-              failed++;
-              console.warn(
-                `⚠️  [Server] Standby account validation error: ${maskEmail(account.email)}: ${getErrorMessage(error)} (quarantined)`,
-              );
-              const { markAccountRateLimited } = await import("../core/account-manager.ts");
-              markAccountRateLimited(
-                account.id,
-                24 * 3600 * 1000,
-                `StandbyValidationError: ${getErrorMessage(error)}`,
-              );
-            }
-          }
-
-          if (validated > 0 || failed > 0) {
+          const standbyCount = totalAccounts - currentReadyCount;
+          if (standbyCount > 0) {
             console.log(
-              `✅ [Server] Standby validation complete: ${validated} account(s) ready${failed > 0 ? `, ${failed} failed` : ""}`,
+              `🪶 [Server] ${standbyCount} standby account(s) ready in pool (will initialize on demand when active accounts rotate)`,
             );
           }
         })().catch((error) => {
           console.warn(
-            `❌ [Server] Background standby validation failed: ${getErrorMessage(error)}`,
+            `❌ [Server] Background account preparation failed: ${getErrorMessage(error)}`,
           );
         });
       }

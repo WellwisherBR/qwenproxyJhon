@@ -56,6 +56,11 @@ async function ensurePlaywrightInitialized(accountId: string): Promise<void> {
   } catch {
     // Non-fatal: chat creation will still work with default account settings.
   }
+
+  try {
+    const { ensureAccountInPriority } = await import("../core/account-priority.ts");
+    ensureAccountInPriority(accountId);
+  } catch {}
 }
 
 export async function getBasicHeaders(accountId?: string): Promise<{
