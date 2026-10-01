@@ -1540,6 +1540,12 @@ async function createQwenBrowserResponse(
   }
 }
 
+const inFlightPersonalizationSyncs = new Map<string, Promise<boolean>>();
+
+export function getInFlightPersonalizationCount(): number {
+  return inFlightPersonalizationSyncs.size;
+}
+
 export async function syncQwenRequestPersonalization(
   instruction: string,
   accountId?: string,
@@ -1552,15 +1558,67 @@ export async function syncQwenRequestPersonalization(
     forceSync?: boolean;
   } = {},
 ): Promise<boolean> {
-  if (isAuthMockEnabled()) {
-    // Test hook: force the sync to report "not applied" so the fail-fast
-    // contract (personalization-required suite) is exercisable in mock mode.
-    if (process.env.TEST_PERSONALIZATION_SYNC_FAIL === "true") return false;
-    return true;
-  }
-  // instruction pode ser vazia para limpar personalization
-
   const cacheKey = accountId || "global";
+  const sent = textSize(instruction);
+  const syncHash = sent.hash ? `${sent.hash}:${QWEN_SAFE_SETTINGS_HASH}` : null;
+  const inFlightKey = `${cacheKey}:${syncHash || "empty"}`;
+
+  const existingInFlight = inFlightPersonalizationSyncs.get(inFlightKey);
+  if (existingInFlight) {
+    logger.debug("[Qwen] Personalization sync already in flight, sharing promise", {
+      accountId: cacheKey,
+    });
+    return existingInFlight;
+  }
+
+  let syncPromise!: Promise<boolean>;
+  syncPromise = (async () => {
+    await Promise.resolve();
+    try {
+      if (isAuthMockEnabled()) {
+        const delay = parseInt(process.env.TEST_PERSONALIZATION_DELAY_MS || "0", 10);
+        if (delay > 0) {
+          await sleep(delay);
+        }
+        // Test hook: force the sync to report "not applied" so the fail-fast
+        // contract (personalization-required suite) is exercisable in mock mode.
+        if (process.env.TEST_PERSONALIZATION_SYNC_FAIL === "true") return false;
+        return true;
+      }
+      return await syncQwenRequestPersonalizationInternal(
+        instruction,
+        accountId,
+        metadata,
+        cacheKey,
+        sent,
+        syncHash,
+      );
+    } finally {
+      if (inFlightPersonalizationSyncs.get(inFlightKey) === syncPromise) {
+        inFlightPersonalizationSyncs.delete(inFlightKey);
+      }
+    }
+  })();
+
+  inFlightPersonalizationSyncs.set(inFlightKey, syncPromise);
+  return syncPromise;
+}
+
+async function syncQwenRequestPersonalizationInternal(
+  instruction: string,
+  accountId: string | undefined,
+  metadata: {
+    model?: string;
+    toolsCount?: number;
+    sessionId?: string | null;
+    promptChars?: number;
+    forceSync?: boolean;
+  },
+  cacheKey: string,
+  sent: ReturnType<typeof textSize>,
+  syncHash: string | null,
+): Promise<boolean> {
+  // instruction pode ser vazia para limpar personalization
 
   // Proactive token renewal: refresh BEFORE attempting personalization
   // to avoid 401 errors that waste time on retry
@@ -1584,8 +1642,6 @@ export async function syncQwenRequestPersonalization(
   let currentSettings: any = null;
   let payload = buildQwenSettingsUpdatePayload(currentSettings, instruction);
 
-  const sent = textSize(instruction);
-  const syncHash = sent.hash ? `${sent.hash}:${QWEN_SAFE_SETTINGS_HASH}` : null;
   const bypassCache = metadata.forceSync === true;
 
   // 1. Check memory cache (skipped on forceSync)

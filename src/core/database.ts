@@ -341,7 +341,11 @@ export function saveAuthSession(
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?,
-      ?, ?, ?, ?, datetime('now')
+      COALESCE(?, (SELECT user_id FROM qwen_auth_sessions WHERE account_id = ?)),
+      ?,
+      COALESCE(?, (SELECT refresh_token FROM qwen_auth_sessions WHERE account_id = ?)),
+      ?,
+      datetime('now')
     )
   `);
   stmt.run(
@@ -356,8 +360,10 @@ export function saveAuthSession(
     session.secChUaPlatform || null,
     session.version || null,
     session.userId || null,
+    accountId,
     session.tokenExpiresAt || null,
     session.refreshToken || null,
+    accountId,
     session.capturedAt ?? Date.now(),
   );
 }

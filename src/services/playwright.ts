@@ -1228,6 +1228,11 @@ export async function getBasicHeaders(accountId: string): Promise<{
     throw new Error(`Playwright not initialized for account: ${accountId}`);
   }
 
+  const inFlightInit = inFlightAccountInits.get(accountId);
+  if (inFlightInit) {
+    await inFlightInit.catch(() => {});
+  }
+
   // Acquire mutex to prevent concurrent browser access
   const release = await acquireAccountMutex(
     accountId,
@@ -3068,6 +3073,12 @@ export async function captureQwenHeaders(
         const { saveAuthSession } = await import("../core/database.ts");
         const { parseJwtExpiry } = await import("../utils/jwt.ts");
         const tokenExpiry = parseJwtExpiry(capturedHeaders.cookie);
+        let rTok: string | undefined;
+        try {
+          rTok =
+            (await page.evaluate(() => localStorage.getItem("refresh_token") || "")).trim() ||
+            undefined;
+        } catch {}
         saveAuthSession(accountId, {
           cookie: capturedHeaders.cookie,
           userAgent: capturedHeaders["user-agent"],
@@ -3079,6 +3090,7 @@ export async function captureQwenHeaders(
           secChUaPlatform: capturedHeaders["sec-ch-ua-platform"],
           version: capturedHeaders["version"],
           tokenExpiresAt: tokenExpiry || undefined,
+          refreshToken: rTok,
           capturedAt: Date.now(),
         });
       } catch {}
@@ -3121,40 +3133,61 @@ export async function captureQwenHeaders(
       const isAuthUrl = currentUrl.includes("/auth") || currentUrl.includes("/login");
       const isSuspectedGuest = isAuthUrl || (attempt >= 2 && !(await isPageLoggedIn(page, 5000)));
       if (isSuspectedGuest) {
-        const { getAccountCredentials } = await import("../core/accounts.ts");
-        const creds = getAccountCredentials(accountId);
-        if (creds && creds.email && creds.password) {
-          console.warn(
-            `⚠️  [Playwright] Session expired or guest state detected during header capture for ${accountId}; re-authenticating...`,
+        // Try fast silent token refresh first using the 30-day refresh_token in-page (~200ms)
+        const silentRefresh = await refreshAccountToken(accountId);
+        if (silentRefresh.success) {
+          console.log(
+            `⚡ [Playwright] Token refreshed silently during header capture for ${accountId}`,
           );
-          armOverallDeadline();
-          const ok = await loginToQwen(accountId, creds.email, creds.password);
-          if (ok) {
-            // Re-login navigated; load the chat page and wait for hydration so
-            // the check below probes a live authenticated chat page.
+          if (isAuthUrl) {
             await page.goto(qwenUrl("/"), {
               waitUntil: "domcontentloaded",
               timeout: Math.min(config.timeouts.navigation, timeoutMs),
             });
-            await sleep(2000);
+            await sleep(1500);
           }
-          if (!ok || !(await isPageLoggedIn(page, 6000))) {
+          if (await isPageLoggedIn(page, 5000)) {
+            armOverallDeadline();
+          }
+        }
+
+        const stillSuspected = !silentRefresh.success || !(await isPageLoggedIn(page, 2000));
+        if (stillSuspected) {
+          const { getAccountCredentials } = await import("../core/accounts.ts");
+          const creds = getAccountCredentials(accountId);
+          if (creds && creds.email && creds.password) {
+            console.warn(
+              `⚠️  [Playwright] Session expired or guest state detected during header capture for ${accountId}; re-authenticating...`,
+            );
+            armOverallDeadline();
+            const ok = await loginToQwen(accountId, creds.email, creds.password);
+            if (ok) {
+              // Re-login navigated; load the chat page and wait for hydration so
+              // the check below probes a live authenticated chat page.
+              await page.goto(qwenUrl("/"), {
+                waitUntil: "domcontentloaded",
+                timeout: Math.min(config.timeouts.navigation, timeoutMs),
+              });
+              await sleep(2000);
+            }
+            if (!ok || !(await isPageLoggedIn(page, 6000))) {
+              settle(
+                new Error(
+                  `Header capture failed for ${accountId}: re-login after session expiry did not succeed`,
+                ),
+              );
+              return;
+            }
+            armOverallDeadline();
+            if (settled || page.isClosed()) return;
+          } else {
             settle(
               new Error(
-                `Header capture failed for ${accountId}: re-login after session expiry did not succeed`,
+                `Header capture failed for ${accountId}: session expired and no credentials available for re-login (run 'qpx login')`,
               ),
             );
             return;
           }
-          armOverallDeadline();
-          if (settled || page.isClosed()) return;
-        } else {
-          settle(
-            new Error(
-              `Header capture failed for ${accountId}: session expired and no credentials available for re-login (run 'qpx login')`,
-            ),
-          );
-          return;
         }
       }
 
@@ -3610,6 +3643,12 @@ async function refreshHeadersInternal(
             const { saveAuthSession } = await import("../core/database.ts");
             const tokenCookie = liveCookies.find((c) => c.name === "token");
             const exp = tokenCookie ? parseJwtExpiry(tokenCookie.value) : undefined;
+            let rTok: string | undefined;
+            try {
+              rTok =
+                (await page.evaluate(() => localStorage.getItem("refresh_token") || "")).trim() ||
+                undefined;
+            } catch {}
             saveAuthSession(accountId, {
               cookie: cookieStr,
               userAgent: cache.headers["user-agent"] || "",
@@ -3621,6 +3660,7 @@ async function refreshHeadersInternal(
               secChUaPlatform: cache.headers["sec-ch-ua-platform"] || undefined,
               version: cache.headers["version"] || undefined,
               tokenExpiresAt: exp || undefined,
+              refreshToken: rTok,
               capturedAt: Date.now(),
             });
           } catch {}
