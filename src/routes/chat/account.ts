@@ -944,7 +944,12 @@ async function tryCreateStreamWithRetry(
 	accountEmail: string,
 ): Promise<CreateStreamSuccess | CreateStreamFailure> {
 	const maxAttempts = Math.max(1, config.retry.maxAttempts);
-	const maxAccountSwitches = Math.max(0, config.retry.maxAccountSwitches);
+	const accounts = loadAccounts();
+	const configuredAccountCount = accounts.length;
+	const maxAccountSwitches = Math.max(
+		config.retry.maxAccountSwitches,
+		Math.min(configuredAccountCount - 1, 6),
+	);
 	let attemptsLeft = maxAttempts;
 	let retryDelay = config.retry.baseDelayMs;
 	let attempt = 0;
@@ -961,7 +966,6 @@ async function tryCreateStreamWithRetry(
 	let chatInProgressOriginAccountEmail: string | null = null;
 	let lastAttemptError: any = null;
 	let invalidInputSameAccountRetried = false;
-	const accounts = loadAccounts();
 	const isSingleAccount = accounts.length <= 1;
 	let currentAccountId = accountId;
 	let currentAccountEmail = accountEmail;
@@ -1757,6 +1761,13 @@ async function tryCreateStreamWithRetry(
 				currentAccountId = nextAccount.id;
 				currentAccountEmail = maskEmail(nextAccount.email);
 				accountSwitches++;
+				const isRealQuotaError =
+					policy.reason === "quota_or_rate_limit" &&
+					(policy.accountCooldownReason === "RateLimited" ||
+						policy.accountCooldownReason === "QuotaExceeded");
+				if (isRealQuotaError) {
+					attemptsLeft = Math.max(attemptsLeft, 1);
+				}
 
 				// Account switch always rebuilds a fresh upstream chat with full history.
 				// Do NOT persist sticky binding until create succeeds — premature empty

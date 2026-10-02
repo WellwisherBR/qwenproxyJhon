@@ -18,6 +18,7 @@ import {
   setToolCapNotice,
 } from "../../services/qwen.ts";
 import { acquireUpstreamStream } from "./account.ts";
+import { loadAccounts } from "../../core/accounts.ts";
 import { markAccountRateLimited, computeQuotaCooldownMs } from "../../core/account-manager.ts";
 import {
   clearTemporaryBusy,
@@ -905,6 +906,8 @@ export async function processStreamingResponse(
     let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let invalidInputSameAccountRetries = 0;
     let chatInProgressSameAccountRetries = 0;
+    const totalConfiguredAccounts = loadAccounts().length;
+    let quotaRotationsLeft = Math.min(Math.max(1, totalConfiguredAccounts - 1), 6);
     // Set when the terminal [DONE] reached the client. The `| recovered`
     // suffix on Stream done must only appear for attempts that COMPLETED after
     // a mid-stream retry, not for failed attempts that consumed retries.
@@ -1377,7 +1380,6 @@ export async function processStreamingResponse(
           !normalizedError ||
           (clientDisconnected && !gracePending) ||
           c.req.raw.signal.aborted ||
-          retryContext.retriesLeft <= 0 ||
           !midStreamRetry ||
           emittedModelOutput
         ) {
@@ -1388,6 +1390,19 @@ export async function processStreamingResponse(
           requestAborted: c.req.raw.signal.aborted,
         });
         if (!policy.retryable) return false;
+
+        const isRealQuotaError =
+          policy.reason === "quota_or_rate_limit" &&
+          (policy.accountCooldownReason === "RateLimited" ||
+            policy.accountCooldownReason === "QuotaExceeded");
+
+        const hasBudget = isRealQuotaError
+          ? quotaRotationsLeft > 0
+          : retryContext.retriesLeft > 0;
+
+        if (!hasBudget) {
+          return false;
+        }
 
         // Full recovery decision — same rationale as the create-path policy
         // log: the failure line shows the error, this line shows WHY the
@@ -1402,9 +1417,13 @@ export async function processStreamingResponse(
           invalidateLogicalThreadParent(midStreamRetry.sessionId);
         }
 
-        retryContext.retriesLeft--;
+        if (isRealQuotaError) {
+          quotaRotationsLeft--;
+        } else {
+          retryContext.retriesLeft--;
+        }
         console.warn(
-          `🔄 [Chat] Stream recovery | account=${currentAccountId} | reason=${policy.reason} | error=${normalizedError.message.substring(0, 150)} | retries_left=${retryContext.retriesLeft}`,
+          `🔄 [Chat] Stream recovery | account=${currentAccountId} | reason=${policy.reason} | error=${normalizedError.message.substring(0, 150)} | retries_left=${isRealQuotaError ? quotaRotationsLeft : retryContext.retriesLeft}`,
         );
 
         const retryInvalidInputOnSameAccount =
