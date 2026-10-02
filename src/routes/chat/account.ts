@@ -1273,7 +1273,18 @@ async function tryCreateStreamWithRetry(
 				const acquireDeadlineMs = config.concurrency.acquireDeadlineMs;
 				let acquireDeadlineTimer: NodeJS.Timeout | undefined;
 				const acquireDeadline = new Promise<never>((_, reject) => {
-					acquireDeadlineTimer = setTimeout(() => {
+					const checkDeadline = async () => {
+						try {
+							const { isCaptchaRecoveryActive } = await import(
+								"../../services/captcha-coordinator.ts"
+							);
+							if (currentAccountId && isCaptchaRecoveryActive(currentAccountId)) {
+								// Captcha solver is actively solving puzzle in background; extend deadline by 30s
+								acquireDeadlineTimer = setTimeout(checkDeadline, 30_000);
+								acquireDeadlineTimer.unref?.();
+								return;
+							}
+						} catch {}
 						// Abort the losing createQwenStream (it is still queued on the
 						// stream lock or mid-create); the post-lock signal re-check in
 						// createQwenStream then throws instead of letting the orphan
@@ -1284,7 +1295,8 @@ async function tryCreateStreamWithRetry(
 						) as Error & { code?: string };
 						err.code = "acquire_deadline";
 						reject(err);
-					}, acquireDeadlineMs);
+					};
+					acquireDeadlineTimer = setTimeout(checkDeadline, acquireDeadlineMs);
 					acquireDeadlineTimer.unref?.();
 				});
 				result = await Promise.race([

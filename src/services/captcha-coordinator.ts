@@ -21,6 +21,11 @@ const CHALLENGE_PATH_MARKER = "_____tmd_____";
  */
 const FAILED_RECOVERY_BACKOFF_MS = 30_000;
 const lastFailedRecoveryAt = new Map<string, number>();
+const activeCaptchaRecoveries = new Set<string>();
+
+export function isCaptchaRecoveryActive(accountId: string): boolean {
+  return activeCaptchaRecoveries.has(accountId);
+}
 
 async function gotoBestEffort(page: Page, url: string): Promise<void> {
   // A WAF-blocked navigation can time out while still having rendered the
@@ -105,13 +110,6 @@ export async function recoverBaxiaCaptcha(
 
   metrics.increment("captcha.challenges.detected", 1, { solver });
 
-  const challengeUrl = options.challengeBody
-    ? extractBaxiaChallengeUrl(options.challengeBody, config.qwen.baseUrl)
-    : null;
-
-  // The slider itself waits up to 5s for each attempt. Keep the page
-  // operation alive for the full bounded solver budget so a slow challenge
-  // cannot be mistaken for a stuck browser. Do not clamp to timeouts.page.
   // Two navigations (open the challenge, return to the chat page) are part of
   // the recovery, so their budget belongs in the same total.
   const solverOperationTimeoutMs = Math.max(
@@ -122,6 +120,11 @@ export async function recoverBaxiaCaptcha(
       2 * CHALLENGE_NAVIGATION_TIMEOUT_MS,
   );
 
+  const challengeUrl = options.challengeBody
+    ? extractBaxiaChallengeUrl(options.challengeBody, config.qwen.baseUrl)
+    : null;
+
+  activeCaptchaRecoveries.add(accountId);
   try {
     // recoverOnTimeout: false ensures that if the captcha solve times out,
     // withAccountPage does NOT destructively kill the browser context, which
@@ -160,5 +163,7 @@ export async function recoverBaxiaCaptcha(
       detail,
     });
     return false;
+  } finally {
+    activeCaptchaRecoveries.delete(accountId);
   }
 }

@@ -512,6 +512,7 @@ const COOKIE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 const cookieCaches = new Map<string, { cookie: string; timestamp: number }>();
 const lastAccountActivity = new Map<string, number>();
 const lastKeepAliveNavigation = new Map<string, number>();
+const lastProactiveTokenRefresh = new Map<string, number>();
 const profileResetQueue = new Map<string, Promise<void>>();
 let profileResetChain: Promise<void> = Promise.resolve();
 let closingAllPlaywright = false;
@@ -3626,7 +3627,15 @@ async function refreshHeadersInternal(
             `[Playwright] Navigation check failed during refresh for ${accountId}:`,
             (navErr as Error).message,
           );
-          await executeReauth();
+          if (await isPageLoggedIn(page, 3000)) {
+            // Still authenticated despite navigation timeout; do not escalate to slow form re-auth
+          } else {
+            // Try silent in-page token refresh before executing full form login
+            const refreshed = await refreshAccountToken(accountId);
+            if (!refreshed.success) {
+              await executeReauth();
+            }
+          }
         }
       }
 
@@ -4209,8 +4218,10 @@ export async function keepAlivePlaywrightAccount(
     const currentUrl = page.url();
 
     // Proactive session check: if token expires within 5 minutes, refresh in-page silently using refreshAccountToken
+    const lastRefreshAttempt = lastProactiveTokenRefresh.get(accountId) ?? 0;
     const cookie = await getCookies(accountId);
-    if (cookie && isTokenExpiringSoon(cookie, 5)) {
+    if (cookie && isTokenExpiringSoon(cookie, 5) && now - lastRefreshAttempt > 60_000) {
+      lastProactiveTokenRefresh.set(accountId, now);
       console.log(
         `💓 [SessionKeeper] Account ${accountId} access token expiring soon (<5m); silently refreshing...`,
       );
@@ -4273,6 +4284,7 @@ function cleanupPlaywrightAccountState(accountId: string): void {
   cookieCaches.delete(accountId);
   lastAccountActivity.delete(accountId);
   lastKeepAliveNavigation.delete(accountId);
+  lastProactiveTokenRefresh.delete(accountId);
   clearFingerprintCache(accountId);
   // The account's context died/closed — its captured headers are stale or the
   // page is gone, so it must not be selected by the rotation gate until a
