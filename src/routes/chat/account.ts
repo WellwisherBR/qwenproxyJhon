@@ -271,8 +271,13 @@ export function resolveInitialAccount(
 
 		// Explicit preferred account (sticky / same-account retry)
 		if (typeof preferredAccountId === "string" && preferredAccountId) {
+			const needle = preferredAccountId.toLowerCase();
 			const preferred = configuredAccounts.find(
-				(candidate) => candidate.id === preferredAccountId,
+				(candidate) =>
+					candidate.id === preferredAccountId ||
+					candidate.id.toLowerCase().startsWith(needle) ||
+					candidate.email.toLowerCase() === needle ||
+					candidate.email.toLowerCase().includes(needle),
 			);
 			if (preferred && !getAccountCooldownInfo(preferred.id)) {
 				return { account: preferred, configuredAccounts };

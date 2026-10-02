@@ -60,6 +60,7 @@ import {
   logTokenEstimationSample,
   type TokenEstimationContext,
 } from "../../services/token-estimation-metrics.ts";
+import { recordTurnUsage } from "../../core/daily-usage.ts";
 import {
   enrichUsageWithContextMeter,
   getContextMeterHeaders,
@@ -780,6 +781,10 @@ export async function processNonStreamingResponse(
       mode: "non-stream",
       context: currentTokenEstimationContext,
     });
+
+    if (activeAccountId && usage) {
+      recordTurnUsage(activeAccountId, usage);
+    }
 
     // The response was fully processed: persist the next-turn parent.
     if (pendingParentId) {
@@ -2566,6 +2571,10 @@ export async function processStreamingResponse(
           mode: "stream",
           context: currentTokenEstimationContext,
         });
+
+        if (activeAccountId && usage) {
+          recordTurnUsage(activeAccountId, usage);
+        }
       } else {
         if (isToolcallDebugEnabled()) {
           logger.debug(

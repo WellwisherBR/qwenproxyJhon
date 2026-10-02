@@ -242,7 +242,7 @@ export async function chatCompletions(c: Context) {
       updateLogicalThread: parallelEscape ? false : ctx.updateLogicalThread,
       allowThreadReuse: ctx.allowThreadReuse,
       forceNewChat: parallelEscape,
-      preferredAccountId: undefined,
+      preferredAccountId: c.req.header("x-qwenproxy-account") || undefined,
       messageCount: msgCount,
       fullMessageCount: parsed.messageCount,
       toolsCount: declaredTools.length || undefined,

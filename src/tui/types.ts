@@ -38,6 +38,14 @@ export interface ProxyStatusSnapshot {
     cacheHitRatio?: number;
     cacheBytesSaved?: number;
   };
+  dailyUsage?: {
+    poolUsagePercent: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalTokens: number;
+    totalTurns: number;
+    poolCapacityTokens: number;
+  };
   accounts: Array<{
     id: string;
     emailOrName: string;
@@ -50,5 +58,8 @@ export interface ProxyStatusSnapshot {
     isInitialized?: boolean;
     activeStreams?: number;
     streamLimit?: number;
+    dailyTokens?: number;
+    dailyUsagePercent?: number;
+    dailyTurns?: number;
   }>;
 }

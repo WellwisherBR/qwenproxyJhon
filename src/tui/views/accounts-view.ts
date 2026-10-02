@@ -19,6 +19,7 @@ import {
 } from "../../core/accounts.ts";
 import { ServerManager } from "../server-manager.ts";
 import { config } from "../../core/config.ts";
+import { renderProgressBar } from "./status-view.ts";
 export function formatCooldownReason(reason?: string | null, maxLen = 28): string {
   if (!reason) return theme.yellow("Cooldown ativo");
   if (
@@ -938,9 +939,11 @@ export class AccountsView implements TuiView {
     }
 
     // Left Panel: Accounts List Table
+    const showUsageCol = leftW >= 48;
+    const headerUsage = showUsageCol ? "Uso%  " : "";
     const leftContent: string[] = [
       "",
-      `  ${theme.dim("#   Conta                 Status")}`,
+      `  ${theme.dim(`#   Conta                 ${headerUsage}Status`)}`,
       `  ${theme.dim("───────────────────────────────────────")}`,
     ];
 
@@ -997,7 +1000,14 @@ export class AccountsView implements TuiView {
             : theme.muted(`○ Standby     `);
         }
 
-        const line = `${pointer}${num}${name}${status}`;
+        const usagePct = acc.dailyUsagePercent ?? 0;
+        const usagePctStr = showUsageCol
+          ? (usagePct > 0
+              ? (usagePct >= 80 ? theme.red(pad(`${usagePct}%`, 5)) : usagePct >= 40 ? theme.yellow(pad(`${usagePct}%`, 5)) : theme.cyan(pad(`${usagePct}%`, 5)))
+              : theme.dim(pad("0%", 5))) + " "
+          : "";
+
+        const line = `${pointer}${num}${name}${usagePctStr}${status}`;
         if (isHovered) {
           leftContent.push(theme.bgHover(line));
         } else if (isFocused) {
@@ -1045,6 +1055,13 @@ export class AccountsView implements TuiView {
       rightContent.push(`  ${theme.bold("Conta:")}      ${theme.cyan(email)}`);
       rightContent.push(`  ${theme.bold("Sistema ID:")} ${theme.muted(selected.id.slice(0, 14))}`);
       rightContent.push(`  ${theme.bold("Nível:")}      ${selected.priority}`);
+
+      const usagePct = selected.dailyUsagePercent ?? 0;
+      const usageTokens = selected.dailyTokens ?? 0;
+      const usageTurns = selected.dailyTurns ?? 0;
+      const usageColor = usagePct >= 80 ? theme.red : usagePct >= 40 ? theme.yellow : theme.cyan;
+      const usageBar = renderProgressBar(usagePct, 6, usageColor);
+      rightContent.push(`  ${theme.bold("Cota Hoje:")}  [${usageBar}] ${usageColor(`${usagePct}%`)} ${theme.dim(`(~${Math.round(usageTokens / 1000)}k / ${usageTurns} reqs)`)}`);
 
       const cdStatus = selected.onCooldown
         ? theme.yellow(`[!] Cooldown ${Math.round(selected.remainingCooldownMs / 60000)}m`)

@@ -371,6 +371,7 @@ app.get("/health", async (c) => {
       captchasSolved: Number(metrics.get("captcha.solves.succeeded")?.value ?? 0),
       chatsCleaned: Number(metrics.get("chats.cleaned")?.value ?? 0),
     },
+    dailyUsage: (await import("../core/daily-usage.ts")).getPoolDailyUsageSummary(),
   });
 });
 

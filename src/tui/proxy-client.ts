@@ -15,6 +15,10 @@ import { isPlaywrightInitialized } from "../services/playwright.ts";
 import { getAccountConcurrencySnapshot } from "../core/account-concurrency.ts";
 import { getRssUsageSnapshot } from "../core/memory-usage.ts";
 import { metrics } from "../core/metrics.ts";
+import {
+  getAllAccountsDailyUsage,
+  getPoolDailyUsageSummary,
+} from "../core/daily-usage.ts";
 import type { ProxyStatusSnapshot } from "./types.ts";
 
 export function maskAccountIdentifier(idOrEmail: string): string {
@@ -153,13 +157,18 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
     }
   } catch {}
 
-  // Attach concurrency to accounts
+  // Attach concurrency and daily usage to accounts
+  const dailyUsageMap = getAllAccountsDailyUsage();
   const accounts = cachedAccounts.map((acc) => {
     const concurrency = concurrencyMap.get(acc.id);
+    const daily = dailyUsageMap.get(acc.id);
     return {
       ...acc,
       activeStreams: concurrency?.active ?? 0,
       streamLimit: concurrency?.limit ?? config.concurrency.maxStreamsPerAccount,
+      dailyTokens: daily?.completionTokens ?? 0,
+      dailyUsagePercent: daily?.usagePercent ?? 0,
+      dailyTurns: daily?.turnsCount ?? 0,
     };
   });
   // RAM usage
@@ -220,6 +229,7 @@ export async function fetchProxyStatus(): Promise<ProxyStatusSnapshot> {
       cacheHitRatio,
       cacheBytesSaved,
     },
+    dailyUsage: getPoolDailyUsageSummary(cachedAccounts.map((a) => a.id)),
     accounts,
   };
 }

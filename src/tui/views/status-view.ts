@@ -846,12 +846,29 @@ export class StatusView implements TuiView {
     const poolPct = accounts.length > 0 ? Math.round((availableCount / accounts.length) * 100) : 0;
     const poolColor = poolPct >= 70 ? theme.green : poolPct >= 40 ? theme.yellow : theme.red;
     const poolBar = renderProgressBar(poolPct, 8, poolColor);
+    const poolDailyUsage = data?.dailyUsage;
+    const poolUsagePct = poolDailyUsage?.poolUsagePercent ?? 0;
+    const poolUsageColor = poolUsagePct >= 80 ? theme.red : poolUsagePct >= 40 ? theme.yellow : theme.cyan;
+    const poolUsageBar = renderProgressBar(poolUsagePct, 8, poolUsageColor);
     const innerRightW = Math.max(30, rightW - 2);
-    const emailWidth = Math.max(16, Math.min(20, innerRightW - 27));
+    const showUsageCol = innerRightW >= 52;
+    const emailWidth = showUsageCol
+      ? Math.max(14, Math.min(18, innerRightW - 33))
+      : Math.max(16, Math.min(20, innerRightW - 27));
+
     const rightContent: string[] = [
       `  ${theme.bold("Disponibilidade:")} [${poolBar}] ${poolColor(`${availableCount}/${accounts.length} (${poolPct}%)`)}`,
+      ...(poolDailyUsage
+        ? [
+            `  ${theme.bold("Cota Pool Hoje:")} [${poolUsageBar}] ${poolUsageColor(
+              `${poolUsagePct}%`,
+            )} ${theme.dim(
+              `(~${Math.round(poolDailyUsage.totalTokens / 1000)}k tok)`,
+            )}`,
+          ]
+        : []),
       `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
-      `  ${theme.dim(`#   ${pad("Conta", emailWidth)} Carga  Status`)}`,
+      `  ${theme.dim(`#   ${pad("Conta", emailWidth)} Carga  ${showUsageCol ? "Uso%  " : ""}Status`)}`,
       `  ${theme.dim("─".repeat(Math.max(32, innerRightW - 2)))}`,
     ];
 
@@ -864,7 +881,23 @@ export class StatusView implements TuiView {
         const name = pad(truncate(acc.emailOrName, emailWidth - 1), emailWidth);
         const active = acc.activeStreams || 0;
         const limit = acc.streamLimit || 1;
-        const loadBadge = active > 0 ? theme.yellow(`[${active}/${limit}]`) : theme.dim(`[0/${limit}]`);
+        const usagePct = acc.dailyUsagePercent ?? 0;
+
+        let loadBadge: string;
+        if (active > 0) {
+          loadBadge = theme.yellow(`[${active}/${limit}]`);
+        } else if (!showUsageCol && usagePct > 0) {
+          const pctColor = usagePct >= 80 ? theme.red : usagePct >= 40 ? theme.yellow : theme.cyan;
+          loadBadge = pctColor(pad(`[${usagePct}%]`, 5));
+        } else {
+          loadBadge = theme.dim(`[0/${limit}]`);
+        }
+
+        const usageCol = showUsageCol
+          ? (usagePct > 0
+              ? (usagePct >= 80 ? theme.red(pad(`${usagePct}%`, 5)) : usagePct >= 40 ? theme.yellow(pad(`${usagePct}%`, 5)) : theme.cyan(pad(`${usagePct}%`, 5)))
+              : theme.dim(pad("0%", 5))) + " "
+          : "";
 
         let status = theme.green(`${glyphs.bullet} Pronto`);
         if (active > 0 && !acc.onCooldown && acc.headersReady) {
@@ -888,7 +921,7 @@ export class StatusView implements TuiView {
             ? theme.yellow(`◐ Aquecendo...`)
             : theme.muted(`○ Standby`);
         }
-        rightContent.push(`  ${num}${name} ${loadBadge} ${status}`);
+        rightContent.push(`  ${num}${name} ${loadBadge} ${usageCol}${status}`);
       });
     }
 

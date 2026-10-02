@@ -170,6 +170,19 @@ function runMigrations(db: Database.Database): void {
       instruction_hash TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS account_daily_usage (
+      account_id TEXT NOT NULL,
+      date_utc TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      turns_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, date_utc)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON account_daily_usage(date_utc);
   `);
 
   // Cooldown persistence columns — wrapped in try-catch because
