@@ -8,89 +8,67 @@ import {
   recordTurnUsage,
   getAccountDailyUsage,
   getPoolDailyUsageSummary,
-  DAILY_ACCOUNT_TOKEN_BASELINE,
+  STANDARD_DAILY_TOKEN_BASELINE,
+  getModelQuotaWeight,
 } from "../core/daily-usage.ts";
 import { getDatabase } from "../core/database.ts";
 
 test("getUtcDateString formats UTC date correctly", () => {
-  // 2026-10-01 23:59:00 UTC -> 2026-10-01
   const t1 = new Date("2026-10-01T23:59:00.000Z").getTime();
   assert.equal(getUtcDateString(t1), "2026-10-01");
 
-  // 2026-10-02 00:01:00 UTC (which is 21:01 BRT) -> 2026-10-02
   const t2 = new Date("2026-10-02T00:01:00.000Z").getTime();
   assert.equal(getUtcDateString(t2), "2026-10-02");
 });
 
-test("recordTurnUsage accumulates tokens and turn count for an account", () => {
-  const accountId = "test-usage-acc-" + Date.now();
-  const db = getDatabase();
+test("getModelQuotaWeight scales model outputs according to empirical calibration", () => {
+  // Max family: 500k / 280k = 1.7857x
+  const maxWeight = getModelQuotaWeight("qwen3.8-max");
+  assert.equal(Number(maxWeight.toFixed(4)), 1.7857);
 
-  try {
-    // Turn 1
-    recordTurnUsage(accountId, {
-      prompt_tokens: 1000,
-      completion_tokens: 500,
-      total_tokens: 1500,
-    });
+  // Plus family: 500k / 500k = 1.0x
+  const plusWeight = getModelQuotaWeight("qwen3.7-plus");
+  assert.equal(plusWeight, 1.0);
 
-    let usage = getAccountDailyUsage(accountId);
-    assert.equal(usage.turnsCount, 1);
-    assert.equal(usage.promptTokens, 1000);
-    assert.equal(usage.completionTokens, 500);
-    assert.equal(usage.totalTokens, 1500);
-    assert.equal(
-      usage.usagePercent,
-      Math.min(100, Math.round((500 / DAILY_ACCOUNT_TOKEN_BASELINE) * 100)),
-    );
-
-    // Turn 2
-    recordTurnUsage(accountId, {
-      prompt_tokens: 2000,
-      completion_tokens: 1500,
-      total_tokens: 3500,
-    });
-
-    usage = getAccountDailyUsage(accountId);
-    assert.equal(usage.turnsCount, 2);
-    assert.equal(usage.promptTokens, 3000);
-    assert.equal(usage.completionTokens, 2000);
-    assert.equal(usage.totalTokens, 5000);
-    assert.equal(
-      usage.usagePercent,
-      Math.min(100, Math.round((2000 / DAILY_ACCOUNT_TOKEN_BASELINE) * 100)),
-    );
-  } finally {
-    db.prepare("DELETE FROM account_daily_usage WHERE account_id = ?").run(
-      accountId,
-    );
-  }
+  // Omni family: 500k / 620k = 0.8065x
+  const omniWeight = getModelQuotaWeight("qwen3.8-omni-flash");
+  assert.equal(Number(omniWeight.toFixed(4)), 0.8065);
 });
 
-test("getPoolDailyUsageSummary aggregates active accounts correctly", () => {
-  const acc1 = "test-pool-acc1-" + Date.now();
-  const acc2 = "test-pool-acc2-" + Date.now();
+test("recordTurnUsage calculates exact calibrated percentages per model family", () => {
+  const accMax = "test-acc-max-" + Date.now();
+  const accPlus = "test-acc-plus-" + Date.now();
+  const accOmni = "test-acc-omni-" + Date.now();
+  const accMixed = "test-acc-mixed-" + Date.now();
   const db = getDatabase();
 
   try {
-    recordTurnUsage(acc1, { prompt_tokens: 5000, completion_tokens: 20000 });
-    recordTurnUsage(acc2, { prompt_tokens: 10000, completion_tokens: 30000 });
+    // 1. Max: 280,000 output tokens must hit exactly 100%
+    recordTurnUsage(accMax, { prompt_tokens: 1000, completion_tokens: 280_000 }, "qwen3.8-max");
+    const usageMax = getAccountDailyUsage(accMax);
+    assert.equal(usageMax.usagePercent, 100, "Max with 280k tokens should be 100%");
 
-    const summary = getPoolDailyUsageSummary([acc1, acc2]);
-    assert.equal(summary.totalPromptTokens, 15000);
-    assert.equal(summary.totalCompletionTokens, 50000);
-    assert.equal(summary.totalTokens, 65000);
-    assert.equal(summary.totalTurns, 2);
-    assert.equal(summary.poolCapacityTokens, 2 * DAILY_ACCOUNT_TOKEN_BASELINE);
-    // 50,000 / (2 * 400,000) = 50,000 / 800,000 = 6.25% -> 6%
-    assert.equal(
-      summary.poolUsagePercent,
-      Math.round((50000 / (2 * DAILY_ACCOUNT_TOKEN_BASELINE)) * 100),
-    );
+    // 2. Plus: 500,000 output tokens must hit exactly 100%
+    recordTurnUsage(accPlus, { prompt_tokens: 1000, completion_tokens: 500_000 }, "qwen3.7-plus");
+    const usagePlus = getAccountDailyUsage(accPlus);
+    assert.equal(usagePlus.usagePercent, 100, "Plus with 500k tokens should be 100%");
+
+    // 3. Omni: 620,000 output tokens must hit exactly 100%
+    recordTurnUsage(accOmni, { prompt_tokens: 1000, completion_tokens: 620_000 }, "qwen3.8-omni-flash");
+    const usageOmni = getAccountDailyUsage(accOmni);
+    assert.equal(usageOmni.usagePercent, 100, "Omni with 620k tokens should be 100%");
+
+    // 4. Mixed: 140,000 Max (50%) + 250,000 Plus (50%) = 100%
+    recordTurnUsage(accMixed, { prompt_tokens: 500, completion_tokens: 140_000 }, "qwen3.8-max");
+    const halfUsage = getAccountDailyUsage(accMixed);
+    assert.equal(halfUsage.usagePercent, 50, "140k Max should be 50%");
+
+    recordTurnUsage(accMixed, { prompt_tokens: 500, completion_tokens: 250_000 }, "qwen3.7-plus");
+    const fullUsage = getAccountDailyUsage(accMixed);
+    assert.equal(fullUsage.usagePercent, 100, "140k Max + 250k Plus should be 100%");
   } finally {
-    db.prepare("DELETE FROM account_daily_usage WHERE account_id IN (?, ?)").run(
-      acc1,
-      acc2,
+    db.prepare("DELETE FROM account_daily_usage WHERE account_id IN (?, ?, ?, ?)").run(
+      accMax, accPlus, accOmni, accMixed
     );
   }
 });

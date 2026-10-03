@@ -176,6 +176,7 @@ function runMigrations(db: Database.Database): void {
       date_utc TEXT NOT NULL,
       prompt_tokens INTEGER NOT NULL DEFAULT 0,
       completion_tokens INTEGER NOT NULL DEFAULT 0,
+      weighted_tokens REAL NOT NULL DEFAULT 0,
       total_tokens INTEGER NOT NULL DEFAULT 0,
       turns_count INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -184,6 +185,12 @@ function runMigrations(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON account_daily_usage(date_utc);
   `);
+
+  try {
+    db.exec(`ALTER TABLE account_daily_usage ADD COLUMN weighted_tokens REAL DEFAULT 0;`);
+  } catch (err) {
+    if (!isDuplicateColumnError(err)) throw err;
+  }
 
   // Cooldown persistence columns — wrapped in try-catch because
   // SQLite doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN.

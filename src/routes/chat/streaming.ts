@@ -784,7 +784,7 @@ export async function processNonStreamingResponse(
     });
 
     if (activeAccountId && usage) {
-      recordTurnUsage(activeAccountId, usage);
+      recordTurnUsage(activeAccountId, usage, body.model);
     }
 
     // The response was fully processed: persist the next-turn parent.
@@ -2592,7 +2592,7 @@ export async function processStreamingResponse(
         });
 
         if (activeAccountId && usage) {
-          recordTurnUsage(activeAccountId, usage);
+          recordTurnUsage(activeAccountId, usage, body.model);
         }
       } else {
         if (isToolcallDebugEnabled()) {

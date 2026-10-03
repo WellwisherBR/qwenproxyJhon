@@ -13,16 +13,41 @@ import { loadAccounts } from "./accounts.ts";
 
 /**
  * Calibrated daily output-tokens baseline per account.
- * (Empirically measured: ~250k for Max, ~500k for Plus, ~600k for Omni).
- * Defaulting to 400,000 output tokens per account as the balanced benchmark.
+ * Standard baseline is based on the primary coding model (Plus family): 500,000 output tokens.
  */
-export const DAILY_ACCOUNT_TOKEN_BASELINE = 400_000;
+export const STANDARD_DAILY_TOKEN_BASELINE = 500_000;
+export const DAILY_ACCOUNT_TOKEN_BASELINE = STANDARD_DAILY_TOKEN_BASELINE; // backward-compat
+
+export const MODEL_DAILY_OUTPUT_BASELINES: Record<string, number> = {
+  max: 280_000,
+  plus: 500_000,
+  omni: 620_000,
+};
+
+/**
+ * Returns the normalization weight for a model relative to the standard 500k Plus baseline.
+ * - Max models (280k): 500/280 = ~1.7857x (consumes quota faster)
+ * - Plus models (500k): 1.0x (standard baseline)
+ * - Omni/Flash models (620k): 500/620 = ~0.8065x (lasts longer)
+ */
+export function getModelQuotaWeight(model?: string): number {
+  if (!model) return 1.0;
+  const lower = model.toLowerCase();
+  if (lower.includes("max")) {
+    return STANDARD_DAILY_TOKEN_BASELINE / MODEL_DAILY_OUTPUT_BASELINES.max;
+  }
+  if (lower.includes("omni") || lower.includes("flash")) {
+    return STANDARD_DAILY_TOKEN_BASELINE / MODEL_DAILY_OUTPUT_BASELINES.omni;
+  }
+  return 1.0;
+}
 
 export interface AccountDailyUsage {
   accountId: string;
   dateUtc: string;
   promptTokens: number;
   completionTokens: number;
+  weightedTokens: number;
   totalTokens: number;
   turnsCount: number;
   usagePercent: number;
@@ -32,6 +57,7 @@ export interface PoolDailyUsageSummary {
   dateUtc: string;
   totalPromptTokens: number;
   totalCompletionTokens: number;
+  totalWeightedTokens: number;
   totalTokens: number;
   totalTurns: number;
   poolCapacityTokens: number;
@@ -54,9 +80,21 @@ export function recordTurnUsage(
     completion_tokens?: number;
     total_tokens?: number;
   },
-  dateUtc: string = getUtcDateString(),
+  modelOrDate?: string,
+  maybeDateUtc?: string,
 ): void {
   if (!accountId || accountId === "global") return;
+
+  let model: string | undefined;
+  let dateUtc: string;
+
+  if (modelOrDate && /^\d{4}-\d{2}-\d{2}$/.test(modelOrDate)) {
+    dateUtc = modelOrDate;
+    model = undefined;
+  } else {
+    model = modelOrDate;
+    dateUtc = maybeDateUtc || getUtcDateString();
+  }
 
   const prompt = Math.max(0, Number(usage.prompt_tokens) || 0);
   const completion = Math.max(0, Number(usage.completion_tokens) || 0);
@@ -64,24 +102,27 @@ export function recordTurnUsage(
     prompt + completion,
     Number(usage.total_tokens) || prompt + completion,
   );
+  const weight = getModelQuotaWeight(model);
+  const weighted = completion * weight;
 
   try {
     const db = getDatabase();
     db.prepare(
       `
       INSERT INTO account_daily_usage (
-        account_id, date_utc, prompt_tokens, completion_tokens, total_tokens, turns_count, updated_at
+        account_id, date_utc, prompt_tokens, completion_tokens, weighted_tokens, total_tokens, turns_count, updated_at
       ) VALUES (
-        ?, ?, ?, ?, ?, 1, datetime('now')
+        ?, ?, ?, ?, ?, ?, 1, datetime('now')
       )
       ON CONFLICT(account_id, date_utc) DO UPDATE SET
         prompt_tokens = prompt_tokens + excluded.prompt_tokens,
         completion_tokens = completion_tokens + excluded.completion_tokens,
+        weighted_tokens = weighted_tokens + excluded.weighted_tokens,
         total_tokens = total_tokens + excluded.total_tokens,
         turns_count = turns_count + 1,
         updated_at = datetime('now')
     `,
-    ).run(accountId, dateUtc, prompt, completion, total);
+    ).run(accountId, dateUtc, prompt, completion, weighted, total);
   } catch (err: any) {
     // Non-fatal telemetry: never fail a user completion if DB recording fails
   }
@@ -98,7 +139,7 @@ export function getAccountDailyUsage(
     const db = getDatabase();
     const row = db
       .prepare(
-        `SELECT prompt_tokens, completion_tokens, total_tokens, turns_count
+        `SELECT prompt_tokens, completion_tokens, weighted_tokens, total_tokens, turns_count
          FROM account_daily_usage
          WHERE account_id = ? AND date_utc = ?`,
       )
@@ -106,12 +147,13 @@ export function getAccountDailyUsage(
 
     const promptTokens = Number(row?.prompt_tokens) || 0;
     const completionTokens = Number(row?.completion_tokens) || 0;
+    const weightedTokens = Number(row?.weighted_tokens) || completionTokens;
     const totalTokens = Number(row?.total_tokens) || 0;
     const turnsCount = Number(row?.turns_count) || 0;
 
     const usagePercent = Math.min(
       100,
-      Math.round((completionTokens / DAILY_ACCOUNT_TOKEN_BASELINE) * 100),
+      Math.round((weightedTokens / STANDARD_DAILY_TOKEN_BASELINE) * 100),
     );
 
     return {
@@ -119,6 +161,7 @@ export function getAccountDailyUsage(
       dateUtc,
       promptTokens,
       completionTokens,
+      weightedTokens,
       totalTokens,
       turnsCount,
       usagePercent,
@@ -129,6 +172,7 @@ export function getAccountDailyUsage(
       dateUtc,
       promptTokens: 0,
       completionTokens: 0,
+      weightedTokens: 0,
       totalTokens: 0,
       turnsCount: 0,
       usagePercent: 0,
@@ -147,7 +191,7 @@ export function getAllAccountsDailyUsage(
     const db = getDatabase();
     const rows = db
       .prepare(
-        `SELECT account_id, prompt_tokens, completion_tokens, total_tokens, turns_count
+        `SELECT account_id, prompt_tokens, completion_tokens, weighted_tokens, total_tokens, turns_count
          FROM account_daily_usage
          WHERE date_utc = ?`,
       )
@@ -156,11 +200,12 @@ export function getAllAccountsDailyUsage(
     for (const row of rows) {
       const promptTokens = Number(row.prompt_tokens) || 0;
       const completionTokens = Number(row.completion_tokens) || 0;
+      const weightedTokens = Number(row.weighted_tokens) || completionTokens;
       const totalTokens = Number(row.total_tokens) || 0;
       const turnsCount = Number(row.turns_count) || 0;
       const usagePercent = Math.min(
         100,
-        Math.round((completionTokens / DAILY_ACCOUNT_TOKEN_BASELINE) * 100),
+        Math.round((weightedTokens / STANDARD_DAILY_TOKEN_BASELINE) * 100),
       );
 
       result.set(row.account_id, {
@@ -168,6 +213,7 @@ export function getAllAccountsDailyUsage(
         dateUtc,
         promptTokens,
         completionTokens,
+        weightedTokens,
         totalTokens,
         turnsCount,
         usagePercent,
@@ -190,12 +236,13 @@ export function getPoolDailyUsageSummary(
       : loadAccounts().map((a) => a.id);
 
   const accountCount = Math.max(1, accounts.length);
-  const poolCapacityTokens = accountCount * DAILY_ACCOUNT_TOKEN_BASELINE;
+  const poolCapacityTokens = accountCount * STANDARD_DAILY_TOKEN_BASELINE;
 
   const usageMap = getAllAccountsDailyUsage(dateUtc);
 
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  let totalWeightedTokens = 0;
   let totalTokens = 0;
   let totalTurns = 0;
 
@@ -204,6 +251,7 @@ export function getPoolDailyUsageSummary(
     if (usage) {
       totalPromptTokens += usage.promptTokens;
       totalCompletionTokens += usage.completionTokens;
+      totalWeightedTokens += usage.weightedTokens;
       totalTokens += usage.totalTokens;
       totalTurns += usage.turnsCount;
     }
@@ -211,13 +259,14 @@ export function getPoolDailyUsageSummary(
 
   const poolUsagePercent = Math.min(
     100,
-    Math.round((totalCompletionTokens / poolCapacityTokens) * 100),
+    Math.round((totalWeightedTokens / poolCapacityTokens) * 100),
   );
 
   return {
     dateUtc,
     totalPromptTokens,
     totalCompletionTokens,
+    totalWeightedTokens,
     totalTokens,
     totalTurns,
     poolCapacityTokens,
