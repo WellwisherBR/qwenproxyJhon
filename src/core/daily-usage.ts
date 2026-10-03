@@ -10,6 +10,7 @@
 
 import { getDatabase } from "./database.ts";
 import { loadAccounts } from "./accounts.ts";
+import { mapClientModelToQwen } from "./model-alias.ts";
 
 /**
  * Calibrated daily output-tokens baseline per account.
@@ -32,11 +33,11 @@ export const MODEL_DAILY_OUTPUT_BASELINES: Record<string, number> = {
  */
 export function getModelQuotaWeight(model?: string): number {
   if (!model) return 1.0;
-  const lower = model.toLowerCase();
-  if (lower.includes("max")) {
+  const resolved = mapClientModelToQwen(model).toLowerCase();
+  if (resolved.includes("max")) {
     return STANDARD_DAILY_TOKEN_BASELINE / MODEL_DAILY_OUTPUT_BASELINES.max;
   }
-  if (lower.includes("omni") || lower.includes("flash")) {
+  if (resolved.includes("omni") || resolved.includes("flash")) {
     return STANDARD_DAILY_TOKEN_BASELINE / MODEL_DAILY_OUTPUT_BASELINES.omni;
   }
   return 1.0;

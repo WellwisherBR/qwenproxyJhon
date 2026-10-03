@@ -33,6 +33,15 @@ test("getModelQuotaWeight scales model outputs according to empirical calibratio
   // Omni family: 500k / 620k = 0.8065x
   const omniWeight = getModelQuotaWeight("qwen3.8-omni-flash");
   assert.equal(Number(omniWeight.toFixed(4)), 0.8065);
+
+  // Client aliases:
+  // claude-3-7-sonnet or gpt-4o map to Max tier -> 1.7857x
+  const sonnetWeight = getModelQuotaWeight("claude-3-7-sonnet");
+  assert.equal(Number(sonnetWeight.toFixed(4)), 1.7857);
+
+  // claude-3-5-haiku maps to Plus tier -> 1.0x
+  const haikuWeight = getModelQuotaWeight("claude-3-5-haiku");
+  assert.equal(haikuWeight, 1.0);
 });
 
 test("recordTurnUsage calculates exact calibrated percentages per model family", () => {
