@@ -906,6 +906,7 @@ export async function processStreamingResponse(
     let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let invalidInputSameAccountRetries = 0;
     let chatInProgressSameAccountRetries = 0;
+    let antiBotSameAccountRetries = 0;
     const totalConfiguredAccounts = loadAccounts().length;
     let quotaRotationsLeft = Math.min(Math.max(1, totalConfiguredAccounts - 1), 6);
     // Set when the terminal [DONE] reached the client. The `| recovered`
@@ -1456,8 +1457,18 @@ export async function processStreamingResponse(
           );
           return false;
         }
-        const switchAccount =
+        let switchAccount =
           policy.switchAccount && !retryInvalidInputOnSameAccount;
+
+        if (policy.reason === "anti_bot") {
+          if (antiBotSameAccountRetries === 0) {
+            antiBotSameAccountRetries++;
+            switchAccount = false;
+          } else {
+            switchAccount = true;
+            markAccountRateLimited(currentAccountId, 60_000, "AntiBotWafChallenge");
+          }
+        }
 
         if (
           switchAccount &&
@@ -1474,6 +1485,35 @@ export async function processStreamingResponse(
           import("../../services/playwright.ts")
             .then(({ refreshAccountToken }) => refreshAccountToken(currentAccountId))
             .catch(() => {});
+        }
+
+        // Preventative stop: signal Qwen to stop generating on the backend before switching
+        if (currentUiSessionId && targetResponseId) {
+          const streamData = getStream(completionId);
+          const stopHeaders = streamData?.headers;
+          if (stopHeaders?.cookie && stopHeaders["user-agent"]) {
+            void requestQwenTextInBrowser(
+              currentAccountId,
+              "POST",
+              `/api/v2/chat/completions/stop?chat_id=${encodeURIComponent(currentUiSessionId)}`,
+              buildQwenRequestHeaders({
+                cookie: stopHeaders.cookie,
+                userAgent: stopHeaders["user-agent"],
+                bxUa: stopHeaders["bx-ua"],
+                bxUmidtoken: stopHeaders["bx-umidtoken"],
+                bxV: stopHeaders["bx-v"],
+                chatSessionId: currentUiSessionId,
+              }),
+              JSON.stringify({
+                chat_id: currentUiSessionId,
+                response_id: targetResponseId,
+              }),
+              {
+                referrer: qwenUrl(`/c/${encodeURIComponent(currentUiSessionId)}`),
+                noMutexRecovery: true,
+              },
+            ).catch(() => undefined);
+          }
         }
 
         retryContext.releaseAccountLease?.();

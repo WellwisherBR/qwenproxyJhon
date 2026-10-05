@@ -40,10 +40,10 @@ test("config exposes only Playwright/thread-native current auth and context sett
   assert.equal(typeof config.sessionKeeper.navigationIntervalMs, "number");
   assert.ok(config.concurrency.initFailureCooldownMs >= 30_000);
 
-  // Mid-stream silence window: 3 min with ZERO upstream bytes = dead stream.
+  // Mid-stream silence window: 5 min with ZERO upstream bytes = dead stream.
   // Must not exceed the first-chunk deadline — flowing reasoning chunks reset
   // this timer, so only total silence is cut.
-  assert.equal(config.timeouts.reasoningModelTimeout, 180_000);
+  assert.equal(config.timeouts.reasoningModelTimeout, 300_000);
   assert.equal(config.timeouts.firstChunkTimeout, 60_000);
   // chat_in_progress busy window: production default is 4s (short enough that
   // the sticky owner's next turn is not pushed to a cold account; measured

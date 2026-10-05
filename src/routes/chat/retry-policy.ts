@@ -405,6 +405,26 @@ export function isCorruptedChatHistoryError(err: unknown): boolean {
 }
 
 /**
+ * Qwen upstream internal or server-busy errors.
+ * Transient server-side failures requiring a fresh chat and account switch.
+ */
+export function isInternalServerError(err: unknown): boolean {
+  const code = errCode(err).toLowerCase();
+  const message = errMessage(err).toLowerCase();
+  return (
+    code === "internal_error" ||
+    code === "internal_server_error" ||
+    code === "server_error" ||
+    code === "server_busy" ||
+    code === "busy" ||
+    message.includes("internal_error") ||
+    message.includes("ocorreu um erro inesperado") ||
+    message.includes("unexpected error") ||
+    message.includes("internal server error")
+  );
+}
+
+/**
  * Build a RetryAction with sane defaults so each classification branch only
  * spells out the fields it actually changes. Defaults: retryable, no account
  * switch, same chat, delta replay, no delay. Branch ordering below is
@@ -587,6 +607,16 @@ export function classifyRetryAction(
         retryAfterMs: typed.retryAfterMs ?? (isTemporary ? 3_000 : baseDelayMs),
         accountCooldownMs: quota.accountCooldownMs,
         accountCooldownReason: quota.accountCooldownReason,
+      });
+    }
+
+    if (isInternalServerError(err) && !(err instanceof QwenUpstreamError)) {
+      const typed = err as RetryableStreamError;
+      return makeRetryAction("upstream_internal_error", {
+        switchAccount: typed.switchAccount !== false,
+        forceNewChat: true,
+        retryWithFullPrompt: true,
+        retryAfterMs: typed.retryAfterMs ?? Math.min(baseDelayMs * 2, 3000),
       });
     }
 

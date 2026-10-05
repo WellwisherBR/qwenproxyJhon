@@ -4,6 +4,9 @@ import path from "node:path";
 import os from "node:os";
 import { chromium } from "patchright";
 import { pruneAllPlaywrightProfiles, cleanupOrphanProfiles } from "./services/playwright.ts";
+import { installProcessTeardownGuards } from "./core/process-guard.ts";
+
+installProcessTeardownGuards("CleanCache");
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -9,8 +9,10 @@ import {
 import { maskEmail } from "./core/logger.ts";
 import * as readline from "readline";
 import * as dotenv from "dotenv";
+import { installProcessTeardownGuards } from "./core/process-guard.ts";
 
 dotenv.config();
+installProcessTeardownGuards("Login");
 
 const rl = readline.createInterface({
   input: process.stdin,

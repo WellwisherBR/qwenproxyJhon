@@ -287,7 +287,7 @@ export function loadStorageState(accountId: string): string | undefined {
 export async function saveStorageState(
   context: BrowserContext,
   accountId: string,
-  timeoutMs = 5_000,
+  timeoutMs = 10_000,
 ): Promise<void> {
   try {
     const stateFile = getStorageStatePath(accountId);
@@ -295,8 +295,12 @@ export async function saveStorageState(
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    const rawPromise = context.storageState({ path: stateFile }).catch(() => {
+      // Swallowed on context teardown to avoid unhandled rejection if withTimeout already fired
+      return undefined as any;
+    });
     await withTimeout(
-      context.storageState({ path: stateFile }),
+      rawPromise,
       timeoutMs,
       `storageState timed out after ${timeoutMs}ms`,
     );

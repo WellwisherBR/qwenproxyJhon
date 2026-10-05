@@ -1,5 +1,8 @@
 import "dotenv/config";
+import { installProcessTeardownGuards } from "./core/process-guard.ts";
 import { deleteChatsForConfiguredAccounts } from "./services/chat-cleanup.ts";
+
+installProcessTeardownGuards("DeleteChats");
 
 async function run(): Promise<void> {
   console.log("🗑️  [DeleteChats] Using Playwright sessions");

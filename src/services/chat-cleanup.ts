@@ -108,6 +108,11 @@ export async function deleteChatsForConfiguredAccounts(keepBrowserOpen = false):
           `❌ [DeleteChats] [${currentIdx}/${totalCount}] Falha ao apagar conversas de ${maskEmail(account.email)}:`,
           error instanceof Error ? error.message : String(error),
         );
+      } finally {
+        if (!keepBrowserOpen) {
+          const { closePlaywrightForAccount } = await import("./playwright.ts");
+          await closePlaywrightForAccount(account.id).catch(() => {});
+        }
       }
     }
   } finally {
