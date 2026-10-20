@@ -316,9 +316,14 @@ export function translateOpenAIToAnthropic(
   };
 
   const hasToolUse = content.some((b) => b.type === "tool_use");
-  const stopReason = hasToolUse
-    ? "tool_use"
-    : stopReasonMap[choice.finish_reason || "stop"] || "end_turn";
+  const stopReason =
+    choice.finish_reason === "length"
+      ? "max_tokens"
+      : choice.finish_reason === "content_filter"
+        ? "end_turn"
+        : hasToolUse
+          ? "tool_use"
+          : stopReasonMap[choice.finish_reason || "stop"] || "end_turn";
 
   return {
     id: generateMessageId(),
@@ -498,11 +503,14 @@ export function translateStreamChunk(
       state.currentBlockType = null;
     }
 
-    const stopReason = state.hasEmittedToolUse
-      ? "tool_use"
-      : choice.finish_reason === "length"
+    const stopReason =
+      choice.finish_reason === "length"
         ? "max_tokens"
-        : "end_turn";
+        : choice.finish_reason === "content_filter"
+          ? "end_turn"
+          : state.hasEmittedToolUse
+            ? "tool_use"
+            : "end_turn";
 
     events.push(
       JSON.stringify({

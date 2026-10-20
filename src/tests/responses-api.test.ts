@@ -215,6 +215,45 @@ test("Responses Adapter: chatCompletionsToResponses maps assistant response and 
   }
 });
 
+test("Responses Adapter: chatCompletionsToResponses extracts reasoning_tokens from output_tokens_details", () => {
+  const chatResponse = {
+    id: "chatcmpl-test-reasoning",
+    created: 1700000000,
+    model: "qwen3.7-plus",
+    object: "chat.completion" as const,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant" as const,
+          content: "Result after thinking.",
+        },
+        finish_reason: "stop" as const,
+      },
+    ],
+    usage: {
+      prompt_tokens: 50,
+      completion_tokens: 30,
+      total_tokens: 80,
+      output_tokens_details: {
+        reasoning_tokens: 22,
+      },
+    },
+  };
+
+  const converted = chatCompletionsToResponses(chatResponse, "qwen3.7-plus", {
+    input: "Thinking query",
+    model: "qwen3.7-plus",
+  });
+
+  assert.ok(converted.usage);
+  assert.equal(
+    converted.usage.output_tokens_details.reasoning_tokens,
+    22,
+    "must extract reasoning_tokens from output_tokens_details when completion_tokens_details is absent",
+  );
+});
+
 test("Responses Streaming: processes delta text, tool calls, and finalizes output", () => {
   const state = createStreamState("resp_stream_test", "qwen3.7-plus");
 

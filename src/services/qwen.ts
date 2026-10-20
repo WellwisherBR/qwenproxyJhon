@@ -611,18 +611,21 @@ export function buildCapturedQwenHeaders(
 // the first's whole generation). FIFO handoff on release keeps the old
 // leak-recovery semantics (release is idempotent; a dropped stream still blocks
 // its slot until cancel/idle-timeout frees it — same as before).
+export const STREAM_SLOT_MAX_HOLD_MS = 30 * 60 * 1000; // 30 minutes
+
 interface AccountStreamSlots {
-  active: number;
-  queue: Array<() => void>;
+  activeSlots: Map<number, number>; // slotId -> startedAt
+  queue: Array<(releaseFn: () => void) => void>;
 }
 const accountStreamMutexes = new Map<string, AccountStreamSlots>();
+let nextStreamSlotId = 1;
 
-function getAccountStreamMutex(
+export function getAccountStreamMutex(
   accountId: string,
 ): AccountStreamSlots {
   let slots = accountStreamMutexes.get(accountId);
   if (!slots) {
-    slots = { active: 0, queue: [] };
+    slots = { activeSlots: new Map(), queue: [] };
     accountStreamMutexes.set(accountId, slots);
   }
   return slots;
@@ -632,29 +635,78 @@ function streamSlotCapacity(): number {
   return Math.max(1, config.concurrency.maxStreamsPerAccount);
 }
 
-function createStreamSlotRelease(slots: AccountStreamSlots): () => void {
+function createStreamSlotRelease(slots: AccountStreamSlots, slotId: number): () => void {
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    slots.active -= 1;
+    slots.activeSlots.delete(slotId);
     const next = slots.queue.shift();
     if (next) {
       // Hand the slot directly to the waiter (FIFO), same as the old mutex.
-      slots.active += 1;
-      next();
+      const nextId = nextStreamSlotId++;
+      slots.activeSlots.set(nextId, Date.now());
+      next(createStreamSlotRelease(slots, nextId));
     }
   };
 }
 
-async function acquireAccountStreamLock(accountId: string): Promise<() => void> {
+export function sweepStaleAccountStreamSlots(maxHoldMs: number = STREAM_SLOT_MAX_HOLD_MS): number {
+  const now = Date.now();
+  let sweptCount = 0;
+  for (const [accountId, slots] of accountStreamMutexes.entries()) {
+    for (const [slotId, startedAt] of Array.from(slots.activeSlots.entries())) {
+      if (now - startedAt >= maxHoldMs) {
+        logger.warn(
+          `[Qwen] Force-releasing stale stream slot | account=${accountId} | slotId=${slotId} | heldFor=${now - startedAt}ms | maxHold=${maxHoldMs}ms`,
+        );
+        slots.activeSlots.delete(slotId);
+        sweptCount++;
+        const next = slots.queue.shift();
+        if (next) {
+          const nextId = nextStreamSlotId++;
+          slots.activeSlots.set(nextId, now);
+          next(createStreamSlotRelease(slots, nextId));
+        }
+      }
+    }
+  }
+  return sweptCount;
+}
+
+let staleSlotSweeperTimer: NodeJS.Timeout | null = null;
+
+export function ensureStaleSlotSweeperStarted(): void {
+  if (staleSlotSweeperTimer) return;
+  staleSlotSweeperTimer = setInterval(() => {
+    try {
+      sweepStaleAccountStreamSlots();
+    } catch (err) {
+      logger.error("[Qwen] Error in stale stream slot sweeper", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, 60_000);
+  staleSlotSweeperTimer.unref();
+}
+
+export function stopStaleSlotSweeperForTests(): void {
+  if (staleSlotSweeperTimer) {
+    clearInterval(staleSlotSweeperTimer);
+    staleSlotSweeperTimer = null;
+  }
+}
+
+export async function acquireAccountStreamLock(accountId: string): Promise<() => void> {
+  ensureStaleSlotSweeperStarted();
   const slots = getAccountStreamMutex(accountId);
-  if (slots.active < streamSlotCapacity()) {
-    slots.active += 1;
-    return Promise.resolve(createStreamSlotRelease(slots));
+  if (slots.activeSlots.size < streamSlotCapacity()) {
+    const slotId = nextStreamSlotId++;
+    slots.activeSlots.set(slotId, Date.now());
+    return Promise.resolve(createStreamSlotRelease(slots, slotId));
   }
   return new Promise<() => void>((resolve) => {
-    slots.queue.push(() => resolve(createStreamSlotRelease(slots)));
+    slots.queue.push((releaseFn) => resolve(releaseFn));
   });
 }
 

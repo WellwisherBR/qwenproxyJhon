@@ -372,7 +372,10 @@ export function chatCompletionsToResponses(
       cached_tokens: (chatRes.usage as any).prompt_tokens_details?.cached_tokens ?? 0,
     },
     output_tokens_details: {
-      reasoning_tokens: (chatRes.usage as any).completion_tokens_details?.reasoning_tokens ?? 0,
+      reasoning_tokens:
+        (chatRes.usage as any).completion_tokens_details?.reasoning_tokens ??
+        (chatRes.usage as any).output_tokens_details?.reasoning_tokens ??
+        0,
     },
     ...(chatRes.usage.context_meter
       ? { context_meter: chatRes.usage.context_meter }

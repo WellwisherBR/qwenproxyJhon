@@ -428,6 +428,58 @@ test("Anthropic: translateOpenAIToAnthropic strips raw tool call tags from assis
   assert.equal(res.content[1].name, "Read");
 });
 
+test("Anthropic: non-streaming stop_reason respects max_tokens on length even with tool_calls", () => {
+  const openaiRes = {
+    id: "chatcmpl-test-length-tc",
+    object: "chat.completion" as const,
+    created: Date.now(),
+    model: "qwen3.8-max",
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant" as const,
+          content: "Partial output before truncation",
+          tool_calls: [
+            {
+              id: "call_trunc123",
+              type: "function" as const,
+              function: { name: "edit_file", arguments: '{"path":"main.ts"' },
+            },
+          ],
+        },
+        finish_reason: "length" as const,
+      },
+    ],
+    usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+  };
+
+  const res = translateOpenAIToAnthropic(openaiRes, "claude-3-7-sonnet");
+  assert.equal(res.stop_reason, "max_tokens", "length finish_reason must override tool_use in non-stream");
+});
+
+test("Anthropic: streaming stop_reason respects max_tokens on length even with emitted tool_use", () => {
+  const state: AnthropicStreamState = {
+    contentBlockIndex: 1,
+    currentBlockType: "tool_use",
+    currentToolId: "call_trunc456",
+    currentToolIndex: 0,
+    requestModel: "claude-3-7-sonnet",
+    inputTokens: 50,
+    outputTokens: 40,
+    hasEmittedToolUse: true,
+  };
+
+  const chunk = {
+    choices: [{ finish_reason: "length" }],
+    usage: { prompt_tokens: 50, completion_tokens: 40 },
+  };
+  const events = translateStreamChunk(chunk, state).map((e) => JSON.parse(e));
+  const deltaEvent = events.find((e) => e.type === "message_delta");
+  assert.ok(deltaEvent, "must emit message_delta");
+  assert.equal(deltaEvent.delta.stop_reason, "max_tokens", "length finish_reason must override tool_use in stream");
+});
+
 test("Anthropic: translateStreamChunk handles thinking, text, and tool calls in order", () => {
   const state: AnthropicStreamState = {
     contentBlockIndex: 0,
