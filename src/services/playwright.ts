@@ -4678,8 +4678,8 @@ export async function keepAlivePlaywrightAccount(
     const cookie = await getCookies(accountId, true);
     if (cookie && isTokenExpiringSoon(cookie, 5) && now - lastRefreshAttempt > 60_000) {
       lastProactiveTokenRefresh.set(accountId, now);
-      console.log(
-        `💓 [SessionKeeper] Account ${accountId} access token expiring soon (<5m); silently refreshing...`,
+      logger.debug(
+        `[SessionKeeper] Account ${accountId} access token expiring soon (<5m); silently refreshing...`,
       );
       const res = await refreshAccountToken(accountId);
       if (res.success) {
@@ -4687,6 +4687,9 @@ export async function keepAlivePlaywrightAccount(
         touchAccountActivity(accountId);
         return true;
       }
+      logger.warn(
+        `[SessionKeeper] Failed to silently refresh expiring token for ${accountId}: ${res.error || "unknown error"}`,
+      );
     }
 
     const lastNavigation = lastKeepAliveNavigation.get(accountId) ?? 0;
