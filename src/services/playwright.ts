@@ -517,7 +517,7 @@ const headerCaches = new Map<string, AccountHeaderCache>();
 // across the browser session; cookies are dynamically updated from the browser context.
 const HEADER_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const HEADER_REFRESH_THRESHOLD = 0.8; // Background refresh at 80% of TTL
-const COOKIE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const COOKIE_CACHE_TTL = 60 * 1000; // 1 minute (prevents returning stale expiring token after refresh)
 const cookieCaches = new Map<string, { cookie: string; timestamp: number }>();
 const lastAccountActivity = new Map<string, number>();
 const lastKeepAliveNavigation = new Map<string, number>();
@@ -1775,6 +1775,26 @@ export async function initPlaywrightForAccount(
                 `⚠️  [Playwright] Background navigation warning for ${maskEmail(account.email)}: ${err.message}`,
               );
             }
+          }
+        }
+
+        // If the session restored from SQLite has an expired access token (e.g. was in standby for hours/days),
+        // proactively refresh it in-page now with the 30-day refresh_token instead of waiting for the first chat
+        // request to hit an upstream 401 and trigger a slow re-auth / captcha loop.
+        const currentCache = getHeaderCache(account.id);
+        const currentCookie = currentCache?.headers?.cookie || "";
+        if (currentCookie && isTokenExpiringSoon(currentCookie, 5)) {
+          try {
+            const refreshRes = await refreshAccountToken(account.id);
+            if (refreshRes.success) {
+              console.log(
+                `⚡ [Playwright] Silently refreshed expired token restored from DB for ${maskEmail(account.email)}`,
+              );
+            }
+          } catch (err: any) {
+            console.warn(
+              `⚠️  [Playwright] Failed to proactively refresh expired token from DB for ${maskEmail(account.email)}: ${err?.message || err}`,
+            );
           }
         }
         return;
@@ -3175,6 +3195,7 @@ export async function refreshAccountToken(
           const cache = getHeaderCache(accountId);
           cache.headers.cookie = cookieStr;
           cache.lastRefresh = Date.now();
+          cookieCaches.set(accountId, { cookie: cookieStr, timestamp: Date.now() });
           markAccountHeadersReady(accountId);
 
           // Update SQLite session with new tokens
@@ -3213,6 +3234,7 @@ export async function refreshAccountToken(
         const cache = getHeaderCache(accountId);
         cache.headers.cookie = cookieStr;
         cache.lastRefresh = Date.now();
+        cookieCaches.set(accountId, { cookie: cookieStr, timestamp: Date.now() });
         markAccountHeadersReady(accountId);
         saveAuthSession(accountId, {
           cookie: cookieStr,
@@ -4653,7 +4675,7 @@ export async function keepAlivePlaywrightAccount(
 
     // Proactive session check: if token expires within 5 minutes, refresh in-page silently using refreshAccountToken
     const lastRefreshAttempt = lastProactiveTokenRefresh.get(accountId) ?? 0;
-    const cookie = await getCookies(accountId);
+    const cookie = await getCookies(accountId, true);
     if (cookie && isTokenExpiringSoon(cookie, 5) && now - lastRefreshAttempt > 60_000) {
       lastProactiveTokenRefresh.set(accountId, now);
       console.log(

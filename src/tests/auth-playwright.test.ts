@@ -92,6 +92,39 @@ test("auth-playwright: only a parseable JWT expiry triggers proactive refresh", 
   assert.equal(isTokenExpiringSoon(`token=${token(now + 3600)}`), false);
 });
 
+test("auth-playwright: getCookies with forceFresh bypasses cookie cache and respects freshness", async () => {
+  const { getCookies, registerPlaywrightAccountForTests, unregisterPlaywrightAccountForTests } = await import("../services/playwright.ts");
+  const accountId = "test-cookie-freshness-" + Date.now();
+  let currentToken = "token=old-token";
+  const mockPage = {
+    isClosed: () => false,
+    context: () => ({
+      cookies: async () => [{ name: "token", value: currentToken.replace("token=", "") }],
+    }),
+  };
+
+  registerPlaywrightAccountForTests(accountId, mockPage as any, Date.now());
+
+  try {
+    // 1. Initial getCookies populates cache
+    const first = await getCookies(accountId);
+    assert.equal(first, "token=old-token");
+
+    // 2. Token changes in the browser context
+    currentToken = "token=new-refreshed-token";
+
+    // 3. Normal getCookies without forceFresh should still return cached old-token
+    const cached = await getCookies(accountId);
+    assert.equal(cached, "token=old-token", "must hit cache when forceFresh is not set");
+
+    // 4. forceFresh=true must bypass the cache and return the fresh token
+    const fresh = await getCookies(accountId, true);
+    assert.equal(fresh, "token=new-refreshed-token", "forceFresh must retrieve new token from context");
+  } finally {
+    unregisterPlaywrightAccountForTests(accountId);
+  }
+});
+
 test("playwright header capture rejects empty headers and timeouts", async () => {
   const { captureQwenHeaders, hasRequiredQwenHeaders } = await import(
     "../services/playwright.ts"
