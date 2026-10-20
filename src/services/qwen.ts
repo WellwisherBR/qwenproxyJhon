@@ -31,6 +31,7 @@ import { withAccountPage, assertAntiBotHeaders, onBrowserContextCreated, isPlayw
 import { recoverBaxiaCaptcha } from "./captcha-coordinator.ts";
 import { startBaxiaCaptchaWatcher } from "./captcha-solver.ts";
 import { isAccountBusy } from "../core/account-concurrency.ts";
+import { formatAsciiTimezone, sanitizeHeaderForFetch } from "../utils/timezone.ts";
 
 // Re-exported from extracted modules for backward compatibility
 export {
@@ -882,7 +883,7 @@ async function withQwenBrowserPage<T>(
  * adds Cookie, User-Agent, Origin, Referer, and sec-* headers, so we only
  * pass the anti-bot tokens and metadata that the browser cannot infer.
  */
-function getBrowserFetchHeaders(
+export function getBrowserFetchHeaders(
   headers: Record<string, string>,
 ): Record<string, string> {
   const browserAllowedHeaders = new Set([
@@ -899,11 +900,13 @@ function getBrowserFetchHeaders(
     "x-accel-buffering",
   ]);
 
-  return Object.fromEntries(
-    Object.entries(headers).filter(([name]) =>
-      browserAllowedHeaders.has(name.toLowerCase()),
-    ),
-  );
+  const result: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (browserAllowedHeaders.has(name.toLowerCase())) {
+      result[name] = sanitizeHeaderForFetch(String(value ?? ""));
+    }
+  }
+  return result;
 }
 
 interface BrowserTextResponse {
@@ -958,13 +961,14 @@ export async function requestQwenTextInBrowser(
 
   const evaluateRequest = (page: Page) =>
     page.evaluate(
-      async ({ url, method, headers, body, referrer, timeoutMs }: {
+      async ({ url, method, headers, body, referrer, timeoutMs, tz }: {
         url: string;
         method: "GET" | "POST" | "DELETE";
         headers: Record<string, string>;
         body?: string;
         referrer?: string;
         timeoutMs: number;
+        tz: string;
       }): Promise<BrowserTextResponse> => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -991,7 +995,7 @@ export async function requestQwenTextInBrowser(
                     source: "web",
                     version: "0.3.11",
                     "x-request-origin": "https://chat.qwen.ai",
-                    timezone: new Date().toString().split(" (")[0],
+                    timezone: tz,
                     authorization: `Bearer ${rTok}`,
                   },
                   signal: AbortSignal.timeout(5000),
@@ -1037,6 +1041,7 @@ export async function requestQwenTextInBrowser(
         body,
         referrer: options.referrer,
         timeoutMs: options.timeoutMs ?? Math.min(config.timeouts.page, 20_000),
+        tz: formatAsciiTimezone(),
       },
     );
   const recoverOnTimeout = !options.noMutexRecovery;
@@ -1983,7 +1988,7 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
           async (page) => {
             const requestId = crypto.randomUUID();
             const response = await page.evaluate(
-              async ({ payload, timeoutMs, requestId }: { payload: any; timeoutMs: number; requestId: string }) => {
+              async ({ payload, timeoutMs, requestId, tz }: { payload: any; timeoutMs: number; requestId: string; tz: string }) => {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 try {
@@ -1995,7 +2000,7 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
                         accept: "application/json, text/plain, */*",
                         "content-type": "application/json",
                         "x-request-id": requestId,
-                        timezone: new Date().toString().split(" (")[0],
+                        timezone: tz,
                         source: "web",
                       },
                       body: JSON.stringify(payload),
@@ -2007,7 +2012,7 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
                   clearTimeout(timeoutId);
                 }
               },
-              { payload, timeoutMs: config.timeouts.http, requestId },
+              { payload, timeoutMs: config.timeouts.http, requestId, tz: formatAsciiTimezone() },
             );
             return response;
           },
@@ -2293,7 +2298,7 @@ export async function deleteSingleQwenChat(
   const requestHeaders: Record<string, string> = {
     source: "web",
     version: "0.2.89",
-    timezone: new Date().toString().split(" (")[0],
+    timezone: formatAsciiTimezone(),
     "x-request-id": crypto.randomUUID(),
     Referer: qwenUrl(`/c/${encodeURIComponent(chatId)}`),
   };
@@ -2346,7 +2351,7 @@ export async function fetchRemoteQwenChats(
 
   const requestHeaders: Record<string, string> = {
     version: "0.2.89",
-    timezone: new Date().toString().split(" (")[0],
+    timezone: formatAsciiTimezone(),
     "x-request-id": crypto.randomUUID(),
     Referer: qwenUrl("/settings/chats"),
   };
@@ -2408,7 +2413,7 @@ export async function fetchQwenModels(
         async (page) => {
           const requestId = crypto.randomUUID();
           const response = await page.evaluate(
-            async ({ timeoutMs, requestId }: { timeoutMs: number; requestId: string }) => {
+            async ({ timeoutMs, requestId, tz }: { timeoutMs: number; requestId: string; tz: string }) => {
               const controller = new AbortController();
               const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
               try {
@@ -2417,7 +2422,7 @@ export async function fetchQwenModels(
                   headers: {
                     accept: "application/json, text/plain, */*",
                     "x-request-id": requestId,
-                    timezone: new Date().toString().split(" (")[0],
+                    timezone: tz,
                     source: "web",
                   },
                   signal: controller.signal,
@@ -2427,7 +2432,7 @@ export async function fetchQwenModels(
                 clearTimeout(timeoutId);
               }
             },
-            { timeoutMs: config.timeouts.http, requestId },
+            { timeoutMs: config.timeouts.http, requestId, tz: formatAsciiTimezone() },
           );
           return response;
         },
@@ -2473,7 +2478,7 @@ export async function fetchQwenModels(
       bxUa,
       bxUmidtoken,
       extra: {
-        timezone: new Date().toString(),
+        timezone: formatAsciiTimezone(),
       },
     }),
     undefined,

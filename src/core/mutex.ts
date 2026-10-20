@@ -14,6 +14,7 @@ export class Mutex {
   private locked = false;
   private lockedAt = 0;
   private lockedByKey = "";
+  private epoch = 0;
 
   constructor(
     public readonly name: string = "unnamed",
@@ -35,6 +36,7 @@ export class Mutex {
       this.locked = false;
       this.lockedAt = 0;
       this.lockedByKey = "";
+      this.epoch++;
     }
 
     if (!this.locked) {
@@ -78,10 +80,12 @@ export class Mutex {
   }
 
   private createRelease(): () => void {
+    const epoch = this.epoch;
     let released = false;
     return () => {
       if (released) return;
       released = true;
+      if (epoch !== this.epoch) return;
       this.release();
     };
   }

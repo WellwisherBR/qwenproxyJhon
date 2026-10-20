@@ -189,7 +189,7 @@ export function enrichUsageWithContextMeter(
       ? usage.prompt_tokens
       : null;
   const reportedPromptTokens = options.reportUsage
-    ? (upstreamPromptTokens ?? snapshot.estimatedContextTokens)
+    ? (upstreamPromptTokens ?? usage.prompt_tokens)
     : usage.prompt_tokens;
   const contextMeter: ContextMeterSnapshot = {
     ...snapshot,

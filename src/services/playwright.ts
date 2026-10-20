@@ -83,6 +83,7 @@ import { setWafContextResetListener } from "../core/waf-isolation.ts";
 import { updateQwenWebVersion, getQwenWebVersion } from "./qwen-headers.ts";
 import { getAccountProfilePath, getProfilesDir } from "../core/paths.ts";
 import { parseJwtExpiry, isTokenExpiringSoon } from "../utils/jwt.ts";
+import { formatAsciiTimezone } from "../utils/timezone.ts";
 
 type ContextInitHook = (context: BrowserContext) => Promise<void> | void;
 const contextInitHooks: ContextInitHook[] = [];
@@ -2180,7 +2181,7 @@ export async function startEmailOtpLogin(
         email: normalizedEmail,
         requestId,
         version: getQwenWebVersion() || "0.3.12",
-        timezone: new Date().toString().split(" (")[0],
+        timezone: formatAsciiTimezone(),
       },
     ).catch((err: any) => ({ ok: false, error: err?.message || String(err) }));
 
@@ -2292,7 +2293,7 @@ export async function verifyEmailOtpLogin(
       code: cleanCode,
       requestId,
       version: getQwenWebVersion() || "0.3.12",
-      timezone: new Date().toString().split(" (")[0],
+      timezone: formatAsciiTimezone(),
     },
   ).catch((err: any) => ({ ok: false, error: err?.message || String(err) }));
 
@@ -2646,7 +2647,7 @@ async function loginViaApi(
 
     const evalRes = await page
       .evaluate(
-        async ({ email, password, signinUrl, requestId }) => {
+        async ({ email, password, signinUrl, requestId, tz }) => {
           try {
             const response = await fetch(signinUrl, {
               method: "POST",
@@ -2658,7 +2659,7 @@ async function loginViaApi(
                 source: "web",
                 version: "0.3.11",
                 "x-request-origin": "https://chat.qwen.ai",
-                timezone: new Date().toString().split(" (")[0],
+                timezone: tz,
                 "x-request-id": requestId,
               },
               body: JSON.stringify({ email, password }),
@@ -2669,7 +2670,7 @@ async function loginViaApi(
             return { ok: false, error: e.message };
           }
         },
-        { email, password: hashedPassword, signinUrl, requestId },
+        { email, password: hashedPassword, signinUrl, requestId, tz: formatAsciiTimezone() },
       )
       .catch(() => null);
 
@@ -2687,7 +2688,7 @@ async function loginViaApi(
       const fallbackUrl = qwenUrl("/api/v2/auths/signin");
       const fallbackRes = await page
         .evaluate(
-          async ({ email, password, fallbackUrl, requestId }) => {
+          async ({ email, password, fallbackUrl, requestId, tz }) => {
             try {
               const response = await fetch(fallbackUrl, {
                 method: "POST",
@@ -2698,7 +2699,7 @@ async function loginViaApi(
                   "content-type": "application/json",
                   source: "web",
                   version: "0.3.11",
-                  timezone: new Date().toString().split(" (")[0],
+                  timezone: tz,
                   "x-request-id": requestId,
                 },
                 body: JSON.stringify({ email, password }),
@@ -2709,7 +2710,7 @@ async function loginViaApi(
               return { ok: false, error: e.message };
             }
           },
-          { email, password: hashedPassword, fallbackUrl, requestId },
+          { email, password: hashedPassword, fallbackUrl, requestId, tz: formatAsciiTimezone() },
         )
         .catch(() => null);
 
@@ -3131,7 +3132,7 @@ export async function refreshAccountToken(
   if (refreshToken) {
     try {
       const refreshResult = await page.evaluate(
-        async ({ rTok }) => {
+        async ({ rTok, tz }) => {
           try {
             const response = await fetch("https://auth.qwen.ai/api/v2/auths/refresh", {
               method: "GET",
@@ -3141,7 +3142,7 @@ export async function refreshAccountToken(
                 source: "web",
                 version: "0.3.11",
                 "x-request-origin": "https://chat.qwen.ai",
-                timezone: new Date().toString().split(" (")[0],
+                timezone: tz,
                 authorization: `Bearer ${rTok}`,
               },
             });
@@ -3151,7 +3152,7 @@ export async function refreshAccountToken(
             return { ok: false, error: e.message };
           }
         },
-        { rTok: refreshToken },
+        { rTok: refreshToken, tz: formatAsciiTimezone() },
       );
 
       const json = refreshResult?.data;

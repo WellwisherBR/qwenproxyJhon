@@ -135,7 +135,7 @@ test("reportUsage can expose effective history usage while retaining upstream us
   );
 });
 
-test("reportUsage falls back explicitly to a local estimate when Qwen sends no usage", () => {
+test("reportUsage never fabricates standard prompt_tokens when Qwen sends no usage", () => {
   const snapshot = buildContextMeterSnapshot(
     {
       modelId: "qwen3.7-plus",
@@ -153,6 +153,7 @@ test("reportUsage falls back explicitly to a local estimate when Qwen sends no u
     { ...enabledOptions, reportUsage: true },
   );
 
-  assert.equal(usage.prompt_tokens, snapshot.estimatedContextTokens);
+  assert.equal(usage.prompt_tokens, 0, "must not overwrite prompt_tokens with local estimate");
+  assert.equal((usage as any).context_meter.estimatedContextTokens, snapshot.estimatedContextTokens);
   assert.equal((usage as any).context_meter.measurementSource, "local_estimate");
 });
