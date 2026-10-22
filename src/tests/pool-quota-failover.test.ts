@@ -169,3 +169,75 @@ test("stream recovery: skips multiple mid-stream quota-exhausted accounts and re
     clearAllAccountCooldowns();
   }
 });
+
+test("stream recovery: can rotate across more than 6 quota-exhausted accounts (uncapped quotaRotationsLeft)", async () => {
+  const db = getDatabase();
+  const accIds: string[] = [];
+  for (let i = 1; i <= 8; i++) {
+    const id = `pool-stream-uncapped-acc${i}`;
+    accIds.push(id);
+    db.prepare("INSERT OR REPLACE INTO accounts (id, email, password) VALUES (?, ?, ?)").run(
+      id, `stream-uncapped-${i}@test.com`, `pass${i}`
+    );
+  }
+  invalidateAccountsCache();
+  clearAllAccountCooldowns();
+
+  const originalFetch = globalThis.fetch;
+  const attempts: string[] = [];
+
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : "url" in input ? input.url : String(input);
+
+    if (url.includes("/api/v2/chats/new")) {
+      return new Response(JSON.stringify({ chat_id: "test-stream-uncapped-session" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.includes("/api/v2/chat/completions")) {
+      attempts.push("attempt-" + attempts.length);
+
+      // First 7 accounts fail with SSE error chunk: membership_limit
+      if (attempts.length <= 7) {
+        return new Response(
+          "data: {\"error\":{\"code\":\"membership_limit\",\"message\":\"Qwen upstream membership limit reached (update_member)\"}}\n\n",
+          { status: 200, headers: { "Content-Type": "text/event-stream" } }
+        );
+      }
+
+      // 8th account succeeds
+      return new Response(
+        "data: {\"choices\":[{\"delta\":{\"phase\":\"answer\",\"content\":\"STREAM_SUCCESS_UNCAPPED\"}}]}\n\ndata: [DONE]\n\n",
+        { status: 200, headers: { "Content-Type": "text/event-stream" } }
+      );
+    }
+
+    return originalFetch(input, init);
+  };
+
+  try {
+    const res = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "qwen3.7-plus",
+        messages: [{ role: "user", content: "Test uncap quota rotation across 8 accounts" }],
+        stream: true,
+      }),
+    });
+
+    const text = await res.text();
+    assert.equal(res.status, 200, `Expected 200, got ${res.status}`);
+    assert.ok(text.includes("STREAM_SUCCESS_UNCAPPED"), `Expected success chunk, got: ${text}`);
+    assert.ok(attempts.length >= 8, `Expected at least 8 attempts, got ${attempts.length}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const id of accIds) {
+      db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
+    }
+    invalidateAccountsCache();
+    clearAllAccountCooldowns();
+  }
+});

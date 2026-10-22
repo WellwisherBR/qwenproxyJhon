@@ -937,7 +937,7 @@ export async function processStreamingResponse(
     let chatInProgressSameAccountRetries = 0;
     let antiBotSameAccountRetries = 0;
     const totalConfiguredAccounts = loadAccounts().length;
-    let quotaRotationsLeft = Math.min(Math.max(1, totalConfiguredAccounts - 1), 6);
+    let quotaRotationsLeft = Math.max(1, totalConfiguredAccounts - 1);
     // Set when the terminal [DONE] reached the client. The `| recovered`
     // suffix on Stream done must only appear for attempts that COMPLETED after
     // a mid-stream retry, not for failed attempts that consumed retries.
@@ -2831,28 +2831,41 @@ export async function processStreamingResponse(
       logger.error("[Chat] Stream callback error", errorDetails);
     }
     // The HTTP response is already committed at this point.
-    // 1. Emit an explicit assistant message delta so CLI/TUI clients that only
-    //    listen for choices[].delta.content (e.g. OpenCode, Claude Code, etc.)
-    //    render the error visibly in the chat instead of appearing blank/frozen.
-    // 2. Emit a terminal OpenAI-compatible SSE error event + [DONE].
+    // 1. Emit an explicit assistant message delta ONLY if this was an upstream content moderation /
+    //    policy violation (with finish_reason: "content_filter"), so the user understands why the
+    //    prompt was blocked.
+    // 2. For network/transient/quota errors, NEVER emit fake assistant content with finish_reason: "stop".
+    //    Doing so masks network failures as successful AI answers, preventing client agent retries and
+    //    poisoning chat history with error banners.
+    // 3. Emit a terminal OpenAI-compatible SSE error event + [DONE].
     try {
-      const userFriendlyNotice = `\n\n⚠️ **[Qwen Security / Erro]** ${err.message || "A resposta foi interrompida pelo Qwen."}\n\n`;
-      const errorDelta = {
-        id: completionId,
-        object: "chat.completion.chunk",
-        created: Math.floor(Date.now() / 1000),
-        model: body.model,
-        choices: [
-          {
-            index: 0,
-            delta: { content: userFriendlyNotice },
-            logprobs: null,
-            finish_reason: "stop",
-          },
-        ],
-      };
+      const isNetwork = isNetworkLikeError(err);
+      const isModeration =
+        normalizedErrorCode === "data_inspection_failed" ||
+        normalizedErrorCode === "fail_sys_user_validate" ||
+        err.message?.toLowerCase().includes("content moderation") ||
+        err.message?.toLowerCase().includes("security verification");
 
-      await errorStream.write(`data: ${JSON.stringify(errorDelta)}\n\n`);
+      if (!isNetwork && isModeration) {
+        const userFriendlyNotice = `\n\n⚠️ **[Qwen Moderação / Segurança]** ${err.message || "A resposta foi interrompida pelas políticas de segurança do Qwen."}\n\n`;
+        const errorDelta = {
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: body.model,
+          choices: [
+            {
+              index: 0,
+              delta: { content: userFriendlyNotice },
+              logprobs: null,
+              finish_reason: "content_filter",
+            },
+          ],
+        };
+
+        await errorStream.write(`data: ${JSON.stringify(errorDelta)}\n\n`);
+      }
+
       await errorStream.write(
         `data: ${JSON.stringify({
           error: {

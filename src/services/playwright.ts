@@ -1529,6 +1529,14 @@ export async function initPlaywrightForAccount(
     return;
   }
 
+  let resolveInit!: () => void;
+  let rejectInit!: (err: any) => void;
+  const inFlightDeferred = new Promise<void>((res, rej) => {
+    resolveInit = res;
+    rejectInit = rej;
+  });
+  inFlightAccountInits.set(account.id, inFlightDeferred);
+
   const initPromise = (async () => {
     const release = await acquireAccountMutex(
       account.id,
@@ -1536,10 +1544,10 @@ export async function initPlaywrightForAccount(
       Math.max(PLAYWRIGHT_MUTEX_WAIT_MS, 120_000),
     );
     try {
-    // Double-check after acquiring lock
-    if (accountPages.has(account.id)) {
-      return;
-    }
+      // Double-check after acquiring lock
+      if (accountPages.has(account.id)) {
+        return;
+      }
 
     // If a context limit is configured, make room by closing idle contexts.
     await evictIdlePlaywrightContextsToLimit().catch(() => {});
@@ -1866,9 +1874,12 @@ export async function initPlaywrightForAccount(
     }
   })();
 
-  inFlightAccountInits.set(account.id, initPromise);
   try {
     await initPromise;
+    resolveInit();
+  } catch (error) {
+    rejectInit(error);
+    throw error;
   } finally {
     inFlightAccountInits.delete(account.id);
   }
