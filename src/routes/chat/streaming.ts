@@ -2819,7 +2819,7 @@ export async function processStreamingResponse(
       completionId,
     };
 
-    if (retryable) {
+    if (retryable || isNetworkLikeError(err) || isAbortError(err)) {
       if (activeAccountId && isNetworkLikeError(err)) {
         noteMidStreamNetworkFailure(activeAccountId);
       }

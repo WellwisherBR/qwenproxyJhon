@@ -126,6 +126,13 @@ export async function recoverBaxiaCaptcha(
 
   activeCaptchaRecoveries.add(accountId);
   try {
+    const { abortActiveBrowserStreamsForAccount } = await import("./qwen.ts");
+    abortActiveBrowserStreamsForAccount(
+      accountId,
+      "Account stream interrupted by captcha challenge recovery",
+    );
+  } catch {}
+  try {
     // recoverOnTimeout: false ensures that if the captcha solve times out,
     // withAccountPage does NOT destructively kill the browser context, which
     // previously caused "Target page, context or browser has been closed" mid-slider.

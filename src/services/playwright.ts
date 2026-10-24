@@ -1535,6 +1535,8 @@ export async function initPlaywrightForAccount(
     resolveInit = res;
     rejectInit = rej;
   });
+  // Prevent UnhandledRejection if rejectInit is called when no concurrent callers are awaiting
+  inFlightDeferred.catch(() => {});
   inFlightAccountInits.set(account.id, inFlightDeferred);
 
   const initPromise = (async () => {

@@ -27,7 +27,14 @@ export function isPlaywrightAlreadyClosedMessage(message: string): boolean {
 }
 
 export function isBenignTeardownError(error: unknown): boolean {
-  if (!error) return false;
+  if (!error) return true;
+  if (
+    typeof error === "object" &&
+    Object.keys(error).length === 0 &&
+    !(error instanceof Error)
+  ) {
+    return true;
+  }
   const message =
     error instanceof Error
       ? error.message

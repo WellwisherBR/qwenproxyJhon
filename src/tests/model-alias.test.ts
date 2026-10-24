@@ -84,4 +84,14 @@ test("stripThinkingSuffix maps base and public Fast variants", () => {
     enableThinking: true,
     reasoningMode: "auto",
   });
+  assert.deepEqual(stripThinkingSuffix("qwen3.8-omni-flash"), {
+    baseModel: "qwen3.8-omni-flash",
+    enableThinking: false,
+    reasoningMode: "fast",
+  });
+  assert.deepEqual(stripThinkingSuffix("qwen-turbo"), {
+    baseModel: "qwen-turbo",
+    enableThinking: false,
+    reasoningMode: "fast",
+  });
 });

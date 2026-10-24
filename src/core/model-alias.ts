@@ -76,6 +76,12 @@ export function stripThinkingSuffix(model: string): {
     };
   }
 
+  // Default for non-thinking models (omni-flash, turbo)
+  const lower = normalizedModel.toLowerCase();
+  if (lower.includes("omni-flash") || lower.includes("turbo")) {
+    return { baseModel: normalizedModel, enableThinking: false, reasoningMode: "fast" };
+  }
+
   // Default: auto thinking (Qwen decides)
   return { baseModel: normalizedModel, enableThinking: true, reasoningMode: "auto" };
 }

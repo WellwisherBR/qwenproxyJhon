@@ -117,6 +117,7 @@ interface BrowserStreamMetadata {
 }
 
 interface BrowserStreamState {
+  accountId?: string;
   chunks: Uint8Array[];
   done: boolean;
   error: Error | null;
@@ -127,6 +128,36 @@ interface BrowserStreamState {
 const browserStreamStates = new Map<string, BrowserStreamState>();
 const browserStreamBindingPages = new WeakSet<object>();
 const browserStreamBindingContexts = new WeakSet<object>();
+
+/**
+ * Abort all active browser streams for an account immediately.
+ * Called when an account page is navigated by captcha recovery, closed, or reset,
+ * so in-flight streams fail fast (retryable) instead of stalling for minutes.
+ */
+export function abortActiveBrowserStreamsForAccount(
+  accountId: string,
+  reason = "Account browser stream interrupted (page context unloaded)",
+): number {
+  let count = 0;
+  for (const [requestId, state] of browserStreamStates) {
+    if (state.accountId === accountId && !state.done) {
+      count++;
+      handleBrowserStreamEvent(requestId, {
+        type: "error",
+        message: reason,
+        errorName: "AbortError",
+      });
+    }
+  }
+  if (count > 0) {
+    logger.debug("[Qwen] Aborted active browser streams for account", {
+      accountId,
+      count,
+      reason,
+    });
+  }
+  return count;
+}
 
 export async function registerBrowserContextStreamBinding(
   context: BrowserContext,
@@ -1263,6 +1294,7 @@ async function createQwenBrowserResponse(
 
   const requestId = uuidv4();
   const state: BrowserStreamState = {
+    accountId,
     chunks: [],
     done: false,
     error: null,
@@ -1283,10 +1315,14 @@ async function createQwenBrowserResponse(
   let settled = false;
   let abortListener: (() => void) | undefined;
   let cancelPromise: Promise<void> | undefined;
+  let pageCleanup: (() => void) | undefined;
   const cleanup = () => {
     if (settled) return;
     settled = true;
     if (abortListener) signal.removeEventListener("abort", abortListener);
+    try {
+      pageCleanup?.();
+    } catch {}
     browserStreamStates.delete(requestId);
   };
   const cancel = () => {
@@ -1327,6 +1363,34 @@ async function createQwenBrowserResponse(
       accountId,
       async (page) => {
         await ensureBrowserStreamBinding(page);
+        if (typeof (page as any).on === "function") {
+          const onFrameNavigated = (frame: any) => {
+            if (!settled && typeof (page as any).mainFrame === "function" && frame === (page as any).mainFrame()) {
+              handleBrowserStreamEvent(requestId, {
+                type: "error",
+                message: "Qwen browser page navigated during stream (session interrupted)",
+                errorName: "AbortError",
+              });
+            }
+          };
+          const onPageClosed = () => {
+            if (!settled) {
+              handleBrowserStreamEvent(requestId, {
+                type: "error",
+                message: "Qwen browser page closed during stream",
+                errorName: "AbortError",
+              });
+            }
+          };
+          (page as any).on("framenavigated", onFrameNavigated);
+          (page as any).on("close", onPageClosed);
+          pageCleanup = () => {
+            try {
+              (page as any).off?.("framenavigated", onFrameNavigated);
+              (page as any).off?.("close", onPageClosed);
+            } catch {}
+          };
+        }
         if (config.captcha.enabled) {
           captchaWatcher = startBaxiaCaptchaWatcher(
             page,
@@ -3011,13 +3075,9 @@ async function createQwenStreamInternal(
     }
 
     // Dynamic idle timeout based on model type and payload size
-    // Reasoning models (thinking enabled): use REASONING_MODEL_TIMEOUT as base
-    // Non-reasoning models: use IDLE_STREAM_TIMEOUT as base
-    // Both add 30s per MB of payload. Parallel-escape streams get a tight cap
-    // ONLY when non-thinking (see computeDynamicIdleTimeout).
-    const baseTimeoutMs = enableThinking
-      ? config.timeouts.reasoningModelTimeout
-      : config.timeouts.idleStreamTimeout;
+    // Base timeout for gaps between chunks is governed by IDLE_STREAM_TIMEOUT (default 60s)
+    // plus dynamic payload scaling (30s per MB).
+    const baseTimeoutMs = config.timeouts.idleStreamTimeout;
     const dynamicIdleTimeoutMs = computeDynamicIdleTimeout({
       enableThinking,
       parallelEscape: options?.parallelEscape,
@@ -3034,15 +3094,15 @@ async function createQwenStreamInternal(
       dynamicTimeout: dynamicIdleTimeoutMs,
     });
 
-    // Thinking models idle at 600s — fine for gaps AFTER data flows, but a
-    // stream that produced NOTHING in the first-chunk window is dead. Fail
-    // fast (retryable) so the account slot is not held for 10 minutes.
+    // Thinking models legitimately pause before first chunk (up to reasoningModelTimeout).
+    // After the first chunk, the normal dynamicIdleTimeoutMs (60s+) governs chunk gaps.
     const firstChunkDeadlineMs = enableThinking
       ? Math.max(
+          config.timeouts.reasoningModelTimeout,
           config.timeouts.firstChunkTimeout,
           config.timeouts.timeToFirstByte,
         )
-      : undefined;
+      : Math.max(config.timeouts.firstChunkTimeout, config.timeouts.timeToFirstByte);
 
     return addIdleTimeoutToStream(
       stream,
