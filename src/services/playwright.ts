@@ -2193,7 +2193,7 @@ export async function startEmailOtpLogin(
       {
         email: normalizedEmail,
         requestId,
-        version: getQwenWebVersion() || "0.3.12",
+        version: getQwenWebVersion() || "0.3.26",
         timezone: formatAsciiTimezone(),
       },
     ).catch((err: any) => ({ ok: false, error: err?.message || String(err) }));
@@ -2305,7 +2305,7 @@ export async function verifyEmailOtpLogin(
       email: session.email,
       code: cleanCode,
       requestId,
-      version: getQwenWebVersion() || "0.3.12",
+      version: getQwenWebVersion() || "0.3.26",
       timezone: formatAsciiTimezone(),
     },
   ).catch((err: any) => ({ ok: false, error: err?.message || String(err) }));
@@ -2363,7 +2363,7 @@ export async function verifyEmailOtpLogin(
       cookie: `token=${accessToken}`,
       userAgent: session.fingerprint.userAgent,
       bxV: "2.5.37",
-      version: getQwenWebVersion() || "0.3.12",
+      version: getQwenWebVersion() || "0.3.26",
       userId: userId || undefined,
       tokenExpiresAt: exp || undefined,
       refreshToken: refreshToken || undefined,
@@ -2670,7 +2670,7 @@ async function loginViaApi(
                 accept: "application/json, text/plain, */*",
                 "content-type": "application/json",
                 source: "web",
-                version: "0.3.11",
+                version: getQwenWebVersion() || "0.3.26",
                 "x-request-origin": "https://chat.qwen.ai",
                 timezone: tz,
                 "x-request-id": requestId,
@@ -2711,7 +2711,7 @@ async function loginViaApi(
                   accept: "application/json, text/plain, */*",
                   "content-type": "application/json",
                   source: "web",
-                  version: "0.3.11",
+                  version: getQwenWebVersion() || "0.3.26",
                   timezone: tz,
                   "x-request-id": requestId,
                 },
@@ -3153,7 +3153,7 @@ export async function refreshAccountToken(
               headers: {
                 accept: "application/json, text/plain, */*",
                 source: "web",
-                version: "0.3.11",
+                version: getQwenWebVersion() || "0.3.26",
                 "x-request-origin": "https://chat.qwen.ai",
                 timezone: tz,
                 authorization: `Bearer ${rTok}`,
