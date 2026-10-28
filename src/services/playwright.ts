@@ -3054,9 +3054,12 @@ async function loginViaUi(
         ".ant-form-item-explain-error",
         ".ant-message-error",
         ".ant-message-notice",
+        ".ant-message-custom-content",
+        ".ant-notification-notice",
         '[role="alert"]',
         ".qwenchat-auth-error",
         ".auth-error-message",
+        ".qwenchat-toast",
       ].join(", ");
       const errorEl = page.locator(errorSelector).first();
       if (await errorEl.isVisible().catch(() => false)) {
@@ -3072,8 +3075,15 @@ async function loginViaUi(
       }
 
       // Check if an OTP code verification screen appeared (e.g. 2FA / email verification code)
-      const codeSelector =
-        'input[placeholder*="code" i], input[placeholder*="código" i], input[name*="code" i]';
+      const codeSelector = [
+        'input[placeholder*="code" i]',
+        'input[placeholder*="código" i]',
+        'input[name*="code" i]',
+        ".qwenchat-verification-code-input",
+        ".qwenchat-verification-code-input-cell",
+        '[aria-label*="Verification code" i]',
+        '[aria-label*="código de verificação" i]',
+      ].join(", ");
       const codeInput = page.locator(codeSelector).first();
       if (await codeInput.isVisible().catch(() => false)) {
         return {
