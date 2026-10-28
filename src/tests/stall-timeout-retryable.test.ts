@@ -107,3 +107,24 @@ test("stall: abortActiveBrowserStreamsForAccount exists and aborts active accoun
   const count = abortActiveBrowserStreamsForAccount("non-existent-acc-test");
   assert.strictEqual(count, 0);
 });
+
+test("stall: in-app Qwen SPA navigation does not abort stream, while auth/punish navigation aborts", async () => {
+  const { qwenOrigin } = await import("../services/qwen-url.ts");
+  const isSafeSpaUrl = (url: string) =>
+    url.startsWith(qwenOrigin()) &&
+    !url.includes("/auth") &&
+    !url.includes("_____tmd_____") &&
+    !url.includes("/punish");
+
+  // In-app chat URL (SPA pushState)
+  assert.strictEqual(isSafeSpaUrl(`${qwenOrigin()}/c/a23256c1-e1be-4298-b811-5221c78925f6`), true);
+  // Root URL
+  assert.strictEqual(isSafeSpaUrl(`${qwenOrigin()}/`), true);
+  // In-app settings
+  assert.strictEqual(isSafeSpaUrl(`${qwenOrigin()}/settings/personalization`), true);
+
+  // Dangerous external or auth/punish navigations
+  assert.strictEqual(isSafeSpaUrl("https://auth.qwen.ai/login"), false);
+  assert.strictEqual(isSafeSpaUrl(`${qwenOrigin()}/auth`), false);
+  assert.strictEqual(isSafeSpaUrl(`${qwenOrigin()}/_____tmd_____/punish?test`), false);
+});

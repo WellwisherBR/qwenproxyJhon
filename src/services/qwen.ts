@@ -1225,7 +1225,6 @@ async function requestQwenPersonalizationInBrowser(
     headers,
     payload === undefined ? undefined : JSON.stringify(payload),
     {
-      settingsPage: true,
       referrer: qwenUrl("/settings/personalization"),
       noMutexRecovery: true,
     },
@@ -1366,9 +1365,19 @@ async function createQwenBrowserResponse(
         if (typeof (page as any).on === "function") {
           const onFrameNavigated = (frame: any) => {
             if (!settled && typeof (page as any).mainFrame === "function" && frame === (page as any).mainFrame()) {
+              const url = typeof frame.url === "function" ? frame.url() : String(frame.url || "");
+              // Safe SPA in-app routing within Qwen Web (e.g. /c/<id>, /#) must NEVER abort active streams
+              if (
+                url.startsWith(qwenOrigin()) &&
+                !url.includes("/auth") &&
+                !url.includes("_____tmd_____") &&
+                !url.includes("/punish")
+              ) {
+                return;
+              }
               handleBrowserStreamEvent(requestId, {
                 type: "error",
-                message: "Qwen browser page navigated during stream (session interrupted)",
+                message: "Qwen browser page navigated away during stream",
                 errorName: "AbortError",
               });
             }
@@ -2113,7 +2122,6 @@ export async function disableNativeTools(accountId?: string): Promise<void> {
           requestHeaders,
           JSON.stringify(payload),
           {
-            settingsPage: true,
             referrer: qwenUrl("/settings/personalization"),
           },
         );

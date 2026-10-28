@@ -17,6 +17,6 @@ export function getAppVersion(): string {
       }
     }
   } catch {}
-  cachedVersion = "v1.6.7";
+  cachedVersion = "v1.6.8";
   return cachedVersion;
 }
